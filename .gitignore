@@ -1,0 +1,8 @@
+# Ignore Python bytecode
+*.pyc
+
+# Ignore virtual environment
+venv/
+
+# Ignore IDE-specific files
+.idea/
