@@ -49,7 +49,10 @@ class Camera2D:
 
     def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
         if buttons == pyglet.window.mouse.MIDDLE:
-            self.move(-dx, -dy)
+            if modifiers & pyglet.window.key.MOD_CTRL:
+                self.zoom += dy * self.zoom_sensitivity * self._zoom
+            else:
+                self.move(-dx, -dy)
 
     def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
         self.zoom += scroll_y * self.zoom_sensitivity * self._zoom * 10

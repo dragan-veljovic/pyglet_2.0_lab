@@ -4,10 +4,12 @@ import pyglet
 import pymunk
 from tools.definitions import *
 from tools.camera import Camera2D
+from tools.physics import CircleBody
 
 WIDTH = 1280
 HEIGHT = 720
 FPS = 60
+MAX_VEL = 300
 
 
 class MyApp(pyglet.window.Window):
@@ -26,16 +28,21 @@ class MyApp(pyglet.window.Window):
         self.space = pymunk.Space()
         self.space.gravity = (0, -900)  # Gravity pointing downward
 
-        # Create a static ground line
-        ground = pymunk.Segment(self.space.static_body, (0, 100), (self.width, 100), 5)
-        ground.friction = 1.0
-        ground.elasticity = 1.0
-        self.space.add(ground)
+        # # Create a static ground line
+        # ground = pymunk.Segment(self.space.static_body, (0, 100), (self.width, 100), 5)
+        # ground.friction = 1.0
+        # ground.elasticity = 1.0
+        # self.space.add(ground)
+
+        # create a static kinematic line
+        self.platform = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        shape = pymunk.Segment(self.platform, (0, 100), (self.width, 100), 50)
+        self.space.add(self.platform, shape)
 
         # scene attributes
         self.release_bodies = False
-        self.circles = []
         self.bodies = []
+        self.kinematic_body = None
 
     def toggle_run(self):
         if self.run:
@@ -45,20 +52,13 @@ class MyApp(pyglet.window.Window):
         self.run = not self.run
 
     def add_body(self):
-        mass = 1
-        radius = random.randrange(5, 15)
-        moment = pymunk.moment_for_circle(mass, 0, radius)
-        body = pymunk.Body(mass, moment)
-        body.position = (self.camera.get_mouse())
-        body.velocity = (random.randrange(500), random.randrange(500))
-        shape = pymunk.Circle(body, radius)
-        shape.friction = 0.5
-        shape.elasticity = 0.9
-        color = random.randrange(255), random.randrange(255), random.randrange(255), 255
-        self.space.add(body, shape)
-
+        radius = random.randint(3, 10)
+        color = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), 255
+        velocity = random.randint(-MAX_VEL, MAX_VEL), random.randint(-MAX_VEL, MAX_VEL)
+        body = CircleBody(
+            self.space, self.batch, position=self.camera.get_mouse(), radius=radius, color=color, velocity=velocity
+        )
         self.bodies.append(body)
-        self.circles.append(pyglet.shapes.Circle(body.position.x, body.position.y, radius, color=color, batch=self.batch))
 
     def update(self, dt):
         self.space.step(dt)  # Step the Pymunk physics simulation
@@ -66,22 +66,15 @@ class MyApp(pyglet.window.Window):
         if self.release_bodies:
             self.add_body()
 
-        idx_to_remove = []
-        for i in range(len(self.circles)):
-            circle = self.circles[i]
-            body = self.bodies[i]
+        if self.kinematic_body:
+            self.kinematic_body.update()
 
-            # clear up out-of-bounds bodies
+        for body in self.bodies[:]:
             if body.position.y < -2000:
-                idx_to_remove.append(i)
+                body.delete()
+                self.bodies.remove(body)
             else:
-                circle.position = int(body.position.x), int(body.position.y)
-
-        # following doesn't work, it seems circles are bodies are not matched after some time
-        # a class should unify the body, shape and pyglet.circle into attributes of one instance
-        for idx in idx_to_remove:
-            self.circles.pop(idx)
-            self.bodies.pop(idx)
+                body.update()
 
     def on_draw(self) -> None:
         self.clear()
@@ -91,14 +84,33 @@ class MyApp(pyglet.window.Window):
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> None:
         if button == pyglet.window.mouse.LEFT:
             self.release_bodies = True
+        if button == pyglet.window.mouse.RIGHT:
+            if not self.kinematic_body:
+                self.kinematic_body = CircleBody(
+                    self.space, self.batch, radius=15, mass=150, position=self.camera.get_mouse(),
+                    body_type=pymunk.Body.KINEMATIC
+                )
+            else:
+                self.kinematic_body.position = self.camera.get_mouse()
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
         if button == pyglet.window.mouse.LEFT:
             self.release_bodies = False
 
+    def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int) -> None:
+        if buttons == pyglet.window.mouse.RIGHT:
+            if modifiers & pyglet.window.key.MOD_CTRL:
+                self.platform.angle += dy * 0.005
+            if self.kinematic_body:
+                self.kinematic_body.position = self.camera.get_mouse()
+
     def on_key_press(self, symbol: int, modifiers: int) -> None:
+        super(MyApp, self).on_key_press(symbol, modifiers)
         if symbol == pyglet.window.key.SPACE:
             self.toggle_run()
+
+        if symbol == pyglet.window.key.R:
+            self.platform.angle += -0.01
 
 
 if __name__ == "__main__":
