@@ -1,118 +1,163 @@
+"""
+Following is an example of how to texture a quad made of two GL_TRIANGLES.
+When pyglet Texture is created with either
+self.texture = pyglet.resource.texture('res/textures/img.png')
+self.texture = pyglet.image.load('res/textures/img_1.png').get_texture()
+it pyglet automatically binds it to all quads in the batch.
+
+To change the texture of our quad we need a Group subclass.
+
+"""
 import random
 
-import pyglet
-import pymunk
-from tools.definitions import *
-from tools.camera import Camera2D
-from tools.physics import CircleBody
+import pyglet.shapes
 
+import tools.camera
+from tools.definitions import *
+import tools.color
+from pyglet.gl import *
+
+FPS = 60
 WIDTH = 1280
 HEIGHT = 720
-FPS = 60
-MAX_VEL = 300
+
+vertex_source = ("""
+    #version 330 core
+    in vec3 position;
+    in vec2 tex_coords;
+    out vec2 texture_coords;
+    
+    uniform WindowBlock{
+        mat4 projection;
+        mat4 view;
+    } window;
+    
+    uniform float time;
+    
+    void main(){
+        vec3 new_position = position;
+        new_position.yz += new_position.yz * sin(time) * 0.2;
+        new_position.z += new_position.z * sin(time) * 20;
+        gl_Position = window.projection * window.view * vec4(new_position, 1);
+        texture_coords = tex_coords;
+    }
+""")
+
+fragment_source = ("""
+    #version 330 core
+    in vec2 texture_coords;
+    out vec4 final_colors;
+    
+    uniform sampler2D our_texture;
+    
+    void main(){
+        final_colors = texture(our_texture, texture_coords.xy);
+    }
+""")
+
+shader_program = pyglet.graphics.shader.ShaderProgram(
+    pyglet.graphics.shader.Shader(vertex_source, 'vertex'),
+    pyglet.graphics.shader.Shader(fragment_source, 'fragment')
+)
 
 
-class MyApp(pyglet.window.Window):
-    def __init__(self):
-        super(MyApp, self).__init__(height=HEIGHT, width=WIDTH, resizable=True, config=get_config())
-        center_window(self)
+class RenderGroup(pyglet.graphics.Group):
+    """A Group that enables and binds a Texture and ShaderProgram.
+
+    RenderGroups are equal if their Texture and ShaderProgram
+    are equal.
+    """
+    def __init__(self, texture, program, order=0, parent=None):
+        """Create a RenderGroup.
+
+        :Parameters:
+            `texture` : `~pyglet.image.Texture`
+                Texture to bind.
+            `program` : `~pyglet.graphics.shader.ShaderProgram`
+                ShaderProgram to use.
+            `order` : int
+                Change the order to render above or below other Groups.
+            `parent` : `~pyglet.graphics.Group`
+                Parent group.
+        """
+        super().__init__(order, parent)
+        self.texture = texture
+        self.program = program
+
+    def set_state(self):
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(self.texture.target, self.texture.id)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        self.program.use()
+
+    def unset_state(self):
+        glDisable(GL_BLEND)
+
+    def __hash__(self):
+        return hash((self.texture.target, self.texture.id, self.order, self.parent, self.program))
+
+    def __eq__(self, other):
+        return (self.__class__ is other.__class__ and
+                self.texture.target == other.texture.target and
+                self.texture.id == other.texture.id and
+                self.order == other.order and
+                self.program == other.program and
+                self.parent == other.parent)
+
+
+class App(pyglet.window.Window):
+    def __init__(self, **kwargs):
+        super(App, self).__init__(**kwargs)
         set_background_color()
-        self.camera = Camera2D(self)
+        center_window(self)
+
         self.batch = pyglet.graphics.Batch()
+        self.program = shader_program
+        self.camera = tools.camera.Camera3D(self, z_near=5, z_far=10_000, speed=20, fov=90)
+        self.time = 0.0
 
-        # run toggle
-        self.run = False
-        self.toggle_run()
+        self.texture = pyglet.resource.texture('res/textures/img.png')
+        self.texture2 = pyglet.image.load('res/textures/img_1.png').get_texture()
+        self.texture3 = pyglet.resource.texture('res/textures/img_2.png')
 
-        # Create a Pymunk space
-        self.space = pymunk.Space()
-        self.space.gravity = (0, -900)  # Gravity pointing downward
+        self.group3 = RenderGroup(self.texture, self.program)
+        self.group4 = RenderGroup(self.texture2, self.program)
+        self.group5 = RenderGroup(self.texture2, self.program)
 
-        # # Create a static ground line
-        # ground = pymunk.Segment(self.space.static_body, (0, 100), (self.width, 100), 5)
-        # ground.friction = 1.0
-        # ground.elasticity = 1.0
-        # self.space.add(ground)
+        self.quad = self.get_vertical_quad(self.batch, group=self.group3, width=400, height=300, z=200)
+        self.quad2 = self.get_vertical_quad(self.batch, group=self.group4, z=300)
 
-        # create a static kinematic line
-        self.platform = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
-        shape = pymunk.Segment(self.platform, (0, 100), (self.width, 100), 50)
-        self.space.add(self.platform, shape)
+        self.quads = [self.get_vertical_quad(self.batch, self.group5, x=i*200, y=j*200, z=random.randint(-5, 5)) for i in range(-5, 5) for j in range(-3, 3)]
 
-        # scene attributes
-        self.release_bodies = False
-        self.bodies = []
-        self.kinematic_body = None
+        glEnable(GL_DEPTH_TEST)
 
-    def toggle_run(self):
-        if self.run:
-            pyglet.clock.unschedule(self.update)
-        else:
-            pyglet.clock.schedule_interval(self.update, 1/FPS)
-        self.run = not self.run
-
-    def add_body(self):
-        radius = random.randint(3, 10)
-        color = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), 255
-        velocity = random.randint(-MAX_VEL, MAX_VEL), random.randint(-MAX_VEL, MAX_VEL)
-        body = CircleBody(
-            self.space, self.batch, position=self.camera.get_mouse(), radius=radius, color=color, velocity=velocity
+    def get_vertical_quad(self, batch=None, group=None, x=0, y=0, z=0, width=200, height=200):
+        vertices = (
+            x, y, z, x + width, y, z, x + width, y + height, z,
+            x, y, z, x + width, y + height, z, x, y + height, z
         )
-        self.bodies.append(body)
+        tex_coords = (
+            0, 0, 1, 0, 1, 1,
+            0, 0, 1, 1, 0, 1
+        )
 
-    def update(self, dt):
-        self.space.step(dt)  # Step the Pymunk physics simulation
-
-        if self.release_bodies:
-            self.add_body()
-
-        if self.kinematic_body:
-            self.kinematic_body.update()
-
-        for body in self.bodies[:]:
-            if body.position.y < -2000:
-                body.delete()
-                self.bodies.remove(body)
-            else:
-                body.update()
+        return self.program.vertex_list(
+            6, pyglet.gl.GL_TRIANGLES, batch=batch, group=group,
+            position=('f', vertices),
+            tex_coords=('f', tex_coords)
+        )
 
     def on_draw(self) -> None:
+        self.time += 1/FPS
+        self.program['time'] = self.time
         self.clear()
-        with self.camera:
-            self.batch.draw()
-
-    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> None:
-        if button == pyglet.window.mouse.LEFT:
-            self.release_bodies = True
-        if button == pyglet.window.mouse.RIGHT:
-            if not self.kinematic_body:
-                self.kinematic_body = CircleBody(
-                    self.space, self.batch, radius=15, mass=150, position=self.camera.get_mouse(),
-                    body_type=pymunk.Body.KINEMATIC
-                )
-            else:
-                self.kinematic_body.position = self.camera.get_mouse()
-
-    def on_mouse_release(self, x: int, y: int, button: int, modifiers: int) -> None:
-        if button == pyglet.window.mouse.LEFT:
-            self.release_bodies = False
-
-    def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int) -> None:
-        if buttons == pyglet.window.mouse.RIGHT:
-            if modifiers & pyglet.window.key.MOD_CTRL:
-                self.platform.angle += dy * 0.005
-            if self.kinematic_body:
-                self.kinematic_body.position = self.camera.get_mouse()
-
-    def on_key_press(self, symbol: int, modifiers: int) -> None:
-        super(MyApp, self).on_key_press(symbol, modifiers)
-        if symbol == pyglet.window.key.SPACE:
-            self.toggle_run()
-
-        if symbol == pyglet.window.key.R:
-            self.platform.angle += -0.01
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        self.batch.draw()
 
 
-if __name__ == "__main__":
-    app = MyApp()
-    pyglet.app.run()
+if __name__ == '__main__':
+    App(width=WIDTH, height=HEIGHT, resizable=True, config=get_config())
+    pyglet.app.run(1/FPS)
+
+

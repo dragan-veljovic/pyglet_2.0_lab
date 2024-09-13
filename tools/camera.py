@@ -230,7 +230,7 @@ class Camera3D:
         """To set up custom projection matrix, default on_resize() must be overridden."""
         pyglet.gl.glViewport(0, 0, *self._window.get_framebuffer_size())
         self._window.projection = pyglet.math.Mat4.perspective_projection(
-            self.aspect_ratio, 0.1, 3000, self.fov
+            self.aspect_ratio, self.z_near, self.z_far, self.fov
         )
         return pyglet.event.EVENT_HANDLED
 
