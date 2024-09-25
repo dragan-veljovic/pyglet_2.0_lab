@@ -1,6 +1,7 @@
 """Useful definitions for pyglet Window"""
 import pyglet
 import timeit
+from pyglet.graphics.shader import ShaderProgram, Shader
 
 
 def set_background_color(r: int = 20, g: int = 30, b: int = 40, a=255):
@@ -29,6 +30,11 @@ def get_config(
         depth_size=depth_size,
         double_buffer=double_buffer
     )
+
+
+def get_shader_program(*shader_files: str, path="shaders/") -> ShaderProgram:
+    shaders = [pyglet.resource.shader(path + file) for file in shader_files]
+    return ShaderProgram(*shaders)
 
 
 def time_it(func_handle):

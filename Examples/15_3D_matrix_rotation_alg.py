@@ -70,7 +70,7 @@ def rotate_points(
         yaw: float = 0,
         roll: float = 0,
         anchor: tuple[float, float, float] = (0, 0, 0)
-) -> np.ndarray:
+) -> np.array:
     """
     3D rotation around passed anchor.
     Pitch, yaw and roll are angles in radians to rotate around x, y, z axes respectively.
