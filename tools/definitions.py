@@ -5,6 +5,7 @@ from typing import Callable
 from pyglet.graphics.shader import Shader, ShaderProgram
 import pyglet
 import timeit
+from pyglet.graphics.shader import ShaderProgram, Shader
 
 
 def set_background_color(r: int = 20, g: int = 30, b: int = 40, a=255):
