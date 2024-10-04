@@ -1,8 +1,8 @@
-"""Useful definitions for pyglet Window"""
+"""Useful convenience definitions for Pyglet."""
 import textwrap
 from pathlib import Path
 from typing import Callable
-
+from pyglet.graphics.shader import Shader, ShaderProgram
 import pyglet
 import timeit
 
@@ -35,7 +35,7 @@ def get_config(
     )
 
 
-def start_default_display_mode(window_handle: Callable[..., pyglet.window.Window], **kwargs):
+def start_in_default_display_mode(window_handle: Callable[..., pyglet.window.Window], **kwargs):
     """
     Convenience method to create a subclassed pyglet Window in current
     desktop resolution and start pyglet loop at monitor's max refresh rate.
@@ -44,8 +44,13 @@ def start_default_display_mode(window_handle: Callable[..., pyglet.window.Window
     :param kwargs: additional keyword arguments to be passed to window
 
     Example:
+        class App(pyglet.window.Window):
+            def __init__(self, **kwargs):
+            super(App, self).__init__(**kwargs)
+            # ... contents
+
         if __name__ == "__main__":
-            start_default_display_mode(App, fullscreen=True, config=get_config())
+            start_in_default_display_mode(App, fullscreen=True, config=get_config())
     """
     display = pyglet.canvas.get_display()
     screen = display.get_default_screen()
@@ -56,7 +61,7 @@ def start_default_display_mode(window_handle: Callable[..., pyglet.window.Window
     pyglet.app.run(1/refresh_rate)
 
 
-def get_default_shader_program() -> pyglet.graphics.shader.ShaderProgram:
+def get_default_shader_program() -> ShaderProgram:
     """
     Get shader program from default.vert and default.frag files, if they exist in root's "shaders" folder.
     If files (or folder) is not found, they are created.
@@ -114,8 +119,14 @@ def get_default_shader_program() -> pyglet.graphics.shader.ShaderProgram:
 
     vertex_shader = pyglet.resource.shader("default.vert")
     fragment_shader = pyglet.resource.shader("default.frag")
-    shader_program = pyglet.graphics.shader.ShaderProgram(vertex_shader, fragment_shader)
+    shader_program = ShaderProgram(vertex_shader, fragment_shader)
     return shader_program
+
+
+def get_shader_program(*shader_files: str, path="shaders/") -> ShaderProgram:
+    """Get shader program from passed shader file name[s], placed in root/shaders/ directory."""
+    shaders = [pyglet.resource.shader(path + file) for file in shader_files]
+    return ShaderProgram(*shaders)
 
 
 def time_it(func_handle):

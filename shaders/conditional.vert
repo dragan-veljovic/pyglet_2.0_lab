@@ -17,10 +17,10 @@ void main() {
     float rounded_x = round(new_position.x);
     if (mod(rounded_x, 2.0) == 0){
         // for even x coordinates
-        new_position.xy += new_position.yx * sin(time) * 0.1;
+        new_position.yz += new_position.yx * sin(time) * 0.1;
     } else {
         // for odd x coordinates
-        new_position.xy -= new_position.yx * sin(time) * 0.1;
+        new_position.zy -= new_position.zx * sin(time) * 0.1;
     }
 
     gl_Position = window.projection * window.view * vec4(new_position, 1.0);
