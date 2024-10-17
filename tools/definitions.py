@@ -1,7 +1,7 @@
 """Useful convenience definitions for Pyglet."""
 import textwrap
 from pathlib import Path
-from typing import Callable
+from typing import Type
 from pyglet.graphics.shader import Shader, ShaderProgram
 import pyglet
 import timeit
@@ -36,30 +36,56 @@ def get_config(
     )
 
 
-def start_in_default_display_mode(window_handle: Callable[..., pyglet.window.Window], **kwargs):
+def start_app(window_ref: Type[pyglet.window.Window], arguments: dict = None) -> pyglet.window.Window:
     """
-    Convenience method to create a subclassed pyglet Window in current
-    desktop resolution and start pyglet loop at monitor's max refresh rate.
+    A convenience method of initializing pyglet loop and Window with custom arguments.
 
-    :param window_handle: a callable to a pyglet window to start, ex. MyWindow (without brackets)
-    :param kwargs: additional keyword arguments to be passed to window
+    :param window_ref: a reference to your pyglet.window.Window subclass to start
+    :param arguments: a dictionary with arguments to be passed to your window instance
+        This dictionary accepts two special keys:
+        "default_mode" - if its value is True, all other settings are overridden
+            and window is created at desktop resolution, ran in full screen at max refresh rate
+        "fps" - custom fps at which to run pyglet loop
 
     Example:
+
+        SETTINGS = {
+            "default_mode": False,
+            "fps": 60,
+            "width": 1920,
+            "height": 1080,
+            "resizable": True,
+            "config": get_config(samples=2)
+        }
+
         class App(pyglet.window.Window):
             def __init__(self, **kwargs):
             super(App, self).__init__(**kwargs)
             # ... contents
 
         if __name__ == "__main__":
-            start_in_default_display_mode(App, fullscreen=True, config=get_config())
+        start_app(App, SETTINGS)
     """
-    display = pyglet.canvas.get_display()
-    screen = display.get_default_screen()
-    current_mode = screen.get_mode()
-    width, height = current_mode.width, current_mode.height
-    refresh_rate = current_mode.rate
-    window_handle(width=width, height=height, **kwargs)
-    pyglet.app.run(1/refresh_rate)
+    if arguments is None:
+        window_arguments = {'width': 1280, 'height': 720, 'resizable': True}
+    else:
+        window_arguments = arguments.copy()
+
+    default_mode = window_arguments.pop('default_mode') if 'default_mode' in window_arguments else False
+    fps = window_arguments.pop('fps') if 'fps' in window_arguments else 60
+
+    if default_mode:
+        display = pyglet.canvas.get_display()
+        screen = display.get_default_screen()
+        current_mode = screen.get_mode()
+        width, height = current_mode.width, current_mode.height
+        fps = current_mode.rate
+        window = window_ref(width=width, height=height, fullscreen=True)
+    else:
+        window = window_ref(**window_arguments)
+
+    pyglet.app.run(1/fps)
+    return window
 
 
 def get_default_shader_program() -> ShaderProgram:
@@ -148,7 +174,8 @@ palette = {"orange": (209, 60, 23, 255), "yellow": (219, 204, 101, 255), "grey":
            "app4": (247, 173, 25, 255), "app5": (242, 127, 12, 255), "app6": (255, 132, 0, 255)}
 
 
-def show_palette(batch, group=None):
+def get_palette(batch, group=None) -> list:
+    """Returns a list of pyglet.shapes to represent a simple color palette."""
     color_display = []
     color_labels = []
     for i, (name, rgb) in enumerate(palette.items()):
