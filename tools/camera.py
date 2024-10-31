@@ -15,7 +15,6 @@ class Camera2D:
     2D camera functionality. Set centered to false for GUI cameras, or true for world space view.
     Instantiate, then draw desired batches in on_draw() method using "with" context manager.
     """
-
     def __init__(
             self,
             window: pyglet.window.Window,
@@ -124,7 +123,6 @@ class Camera2D:
 
 class Camera3D:
     """3D perspective camera functionality with builtin FPS style controls. Use CTRL+C to toggle controls."""
-
     def __init__(
             self,
             window: pyglet.window.Window,

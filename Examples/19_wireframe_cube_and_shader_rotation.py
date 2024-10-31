@@ -10,6 +10,7 @@ from pyglet.graphics.shader import ShaderProgram
 from pyglet.graphics import Batch, Group
 from pyglet.image import Texture
 from pyglet.gl import GL_LINES, GL_TRIANGLES
+from tools.graphics import rotate_points
 
 SETTINGS = {
     # to overrides all other settings, and start in default mode?
@@ -69,12 +70,13 @@ void main() {
 
 
 class WireframeCube:
+    """Barebone vertex list of a wireframe GL_LINES cube will be attached to a given program."""
+
     def __init__(
             self,
             program: ShaderProgram,
             batch: Batch,
             group: Group = None,
-            texture: Texture = None,
             color=(255, 255, 255, 255),
             position=Vec3(0, 0, 0),
             length=100
@@ -82,13 +84,13 @@ class WireframeCube:
         self.program = program
         self.batch = batch
         self.group = group
-        self.texture = texture
         self.r, self.g, self.b = color[:3]
         self.a = color[3] if len(color) == 4 else 255
         self.color = self.r, self.g, self.b, self.a
         self.position = position
         self.length = length
 
+        self.vertices = self.get_vertices()
         self.gl_line_vertices = self.get_gl_lines_vertices()
         self.count = len(self.gl_line_vertices) // 3
         self.colors = self.color * self.count
@@ -97,14 +99,15 @@ class WireframeCube:
             self.count,
             GL_LINES,
             self.batch,
+            self.group,
             position=('f', self.gl_line_vertices),
             colors=('Bn', self.colors)
         )
 
-    def get_gl_lines_vertices(self):
+    def get_vertices(self):
         x, y, z = self.position.x, self.position.y, self.position.z
         hl = self.length / 2
-        vertices = (
+        return (
             # front face
             (x - hl, y - hl, z + hl),  # 0
             (x + hl, y - hl, z + hl),  # 1
@@ -117,6 +120,7 @@ class WireframeCube:
             (x - hl, y + hl, z - hl),  # 7
         )
 
+    def get_gl_lines_vertices(self):
         indices = [
             0, 1, 1, 2, 2, 3, 3, 0,  # construct front face
             4, 5, 5, 6, 6, 7, 7, 4,  # construct back face
@@ -125,7 +129,7 @@ class WireframeCube:
 
         gl_line_vertices = []
         for idx in indices:
-            gl_line_vertices.extend(vertices[idx])
+            gl_line_vertices.extend(self.vertices[idx])
 
         return gl_line_vertices
 
@@ -173,6 +177,7 @@ class App(pyglet.window.Window):
         if self.run:
             self.time += 1/self.fps
             self.program['time'] = self.time
+
         self.clear()
         self.batch.draw()
 
