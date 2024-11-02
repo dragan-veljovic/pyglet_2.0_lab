@@ -161,6 +161,81 @@ def get_gl_triangle_normals(vertices: tuple) -> tuple:
     return normals.flatten().tolist()
 
 
+def load_model_from_obj(file_path, uvw_tex_coords=False, rotation=(0, 0, 0)) -> tuple:
+    """
+    Loads and process 3D model data from *.obj file.
+    Returns "position", "tex_coords" and "normals" for VertexList.
+    Assumes triangle faces.
+    """
+    # input data
+    vertex_position = []
+    texture_coords = []
+    vertex_normals = []
+    faces = []
+
+    # output data
+    position = []
+    normals = []
+    tex_coords = []
+
+    with open(file_path, "r") as file:
+        for line in file:
+            # remove any starting or ending whitespaces
+            line = line.strip()
+
+            # fetch vertex data
+            if line.startswith("v "):
+                parts = line.split()
+                assert len(parts) == 4, "Incompatible vertex data found, expected 3 component per vertex."
+                vertex = float(parts[1]), float(parts[2]), float(parts[3])
+                vertex_position.append(vertex)
+
+            # fetch texture data
+            elif line.startswith("vt "):
+                parts = line.split()
+                if uvw_tex_coords:
+                    tex_coord = float(parts[1]), float(parts[2]), float(parts[3]) if len(parts) > 3 else 0.0
+                else:
+                    tex_coord = float(parts[1]), float(parts[2])
+                texture_coords.append(tex_coord)
+
+            # fetch normal data
+            elif line.startswith("vn "):
+                parts = line.split()
+                assert len(parts) == 4, "Incompatible vertex data found, expected 3 component per vertex."
+                normal = float(parts[1]), float(parts[2]), float(parts[3])
+                vertex_normals.append(normal)
+
+            # fetch face data
+            elif line.startswith("f "):
+                line = line.split()
+                assert len(line) == 4, "Expected triangle face with 3 sets of vertex/texture/normal data."
+                face = []
+                for part in line[1:]:
+                    ptn_str = part.split("/")
+                    ptn = int(ptn_str[0]), int(ptn_str[1]), int(ptn_str[2])
+                    face.append(ptn)
+                faces.append(face)
+
+    if any(rotation):
+        pitch, yaw, roll = rotation
+        vertex_position = rotate_points(vertex_position, pitch, yaw, roll)
+        vertex_normals = rotate_points(vertex_normals, pitch, yaw, roll)
+
+    # assembling vertex data (allowing for obj indexing that starts for 1)
+    for face in faces:
+        for ptn in face:
+            pos_index, tex_index, nor_index = ptn
+            pos = vertex_position[pos_index - 1]
+            tex = texture_coords[tex_index - 1]
+            nor = vertex_normals[nor_index - 1]
+            position.extend(pos)
+            tex_coords.extend(tex)
+            normals.extend(nor)
+
+    return position, tex_coords, normals
+
+
 class TextureGroup(Group):
     def __init__(
             self,
@@ -210,6 +285,7 @@ class TexturedPlane:
             position: tuple[float, float, float],
             batch, group, program: ShaderProgram,
             length=300, height=200, rotation=(0, 0, 0),
+            color = None,
     ):
         """
         A 2D textured plane in a 3D space.
@@ -226,6 +302,8 @@ class TexturedPlane:
         self.height = height
         self.rotation = rotation  # tuple of pitch, yaw, and roll angles in radians, respectively
         self.pitch, self.yaw, self.roll = rotation
+
+        self.color = color or (255, 255, 255, 255)
 
         vertices = np.array((
             (self.x, self.y, self.z),
@@ -272,6 +350,7 @@ class TexturedPlane:
             count, GL_TRIANGLES, batch, group,
             position=('f', gl_triangles_vertices),
             normals=('f', normals),
+            colors=('Bn', self.color*count),
             tex_coords=('f', tex_coords),
         )
 
@@ -359,6 +438,7 @@ class Cuboid:
                 self.group = TextureGroup(self.texture, self.program)
             else:
                 self.group = None
+
             self.color = color or (255, 255, 255, 255)
 
             self.vertices = self._get_vertices()

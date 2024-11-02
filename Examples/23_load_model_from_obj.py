@@ -53,7 +53,7 @@ _fragment_source = """#version 330 core
     out vec4 final_colors;
 
     uniform sampler2D our_texture;
-    
+
     // light uniforms
     uniform vec3 light_position;
     uniform vec3 light_color;
@@ -61,10 +61,10 @@ _fragment_source = """#version 330 core
     uniform vec3 view_position;
     uniform float specular_strength;
     uniform float shininess;
-    
+
     // texturing or shading
     uniform bool texturing = true;
-    
+
     void main()
     {   
         // Ambient lighting

@@ -19,10 +19,12 @@ settings = {
 _vertex_source = """#version 330 core
     in vec3 position;
     in vec3 normals;
+    in vec4 colors;
     in vec2 tex_coords;
 
     out vec3 frag_position;
     out vec3 frag_normals;
+    out vec4 object_colors;
     out vec2 texture_coords;
 
     uniform WindowBlock 
@@ -34,8 +36,9 @@ _vertex_source = """#version 330 core
     void main()
     {
         gl_Position = window.projection * window.view * vec4(position, 1);
-        frag_normals = normals;
         frag_position = position;
+        frag_normals = normals;
+        object_colors = colors;
         texture_coords = tex_coords;
     }
 """
@@ -43,19 +46,23 @@ _vertex_source = """#version 330 core
 _fragment_source = """#version 330 core
     in vec3 frag_position;
     in vec3 frag_normals;
+    in vec4 object_colors;
     in vec2 texture_coords;
 
     out vec4 final_colors;
 
-    // light uniforms
     uniform sampler2D our_texture;
+
+    // light uniforms
     uniform vec3 light_position;
     uniform vec3 light_color;
     uniform float ambient_strength;
     uniform vec3 view_position;
     uniform float specular_strength;
     uniform float shininess;
-    uniform vec3 object_color;
+
+    // texturing or shading
+    uniform bool texturing = true;
 
     void main()
     {   
@@ -81,10 +88,15 @@ _fragment_source = """#version 330 core
         specular *= attenuation;
 
         // Combine results
-        vec3 result = (ambient + diffuse + specular) * object_color;
+        vec3 result = (ambient + diffuse + specular) * object_colors.rgb;
 
-        vec4 tex_color = texture(our_texture, texture_coords);
-        final_colors = tex_color * vec4(result, 1.0);
+        // texturing or monochrome shading
+        if (texturing){
+            vec4 tex_color = texture(our_texture, texture_coords);
+            final_colors = tex_color * vec4(result, 1.0);
+        } else {
+            final_colors = vec4(result, 1.0);
+        }
     }
 """
 
@@ -145,7 +157,7 @@ class App(pyglet.window.Window):
 
         self.ceiling = TexturedPlane(
             (-500, 1800, 1500), self.batch,
-            self.wall_group, self.program, length=2500, height=2000, rotation=(-np.pi/2, 0, 0)
+            self.wall_group, self.program, length=2500, height=2000, rotation=(-np.pi / 2, 0, 0)
         )
 
         self.planes = []
@@ -203,7 +215,6 @@ class App(pyglet.window.Window):
         self.program['view_position'] = self.camera.position
         self.program['specular_strength'] = self.light.specular
         self.program['shininess'] = self.shininess
-        self.program['object_color'] = self.object_color
 
     def on_draw(self) -> None:
         if self.run:
@@ -221,6 +232,8 @@ class App(pyglet.window.Window):
             self.on_close()
         elif symbol == pyglet.window.key.SPACE:
             self.run = not self.run
+        elif symbol == pyglet.window.key.C:
+            self.program['texturing'] = not self.program['texturing']
 
 
 if __name__ == '__main__':

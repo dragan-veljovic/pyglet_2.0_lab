@@ -146,6 +146,8 @@ class Camera3D:
         self.z_far = z_far
         self.fov = fov
         self.sensitivity = sensitivity
+        self.speed_normal = speed
+        self.speed_boost = 3 * speed
         self.speed = speed
         self._fps_controls = not fps_controls
         self.toggle_fps_controls()
@@ -249,6 +251,11 @@ class Camera3D:
             self.toggle_fps_controls()
 
     def _check_keys(self):
+        if self.keys[pyglet.window.key.LSHIFT]:
+            self.speed = self.speed_boost
+        else:
+            self.speed = self.speed_normal
+
         if self.keys[pyglet.window.key.W]:
             self._position += self._front * self.speed
         if self.keys[pyglet.window.key.S]:
