@@ -1,8 +1,10 @@
 """
-Implementation of Phong lighting model for a point source.
+I was unable to access tex_coords of the decoded OBJ file using built in
+pyglet.model.load(), so this is custom function to load and process OBJ model data
+returning position, normals and tex_coords to be used with GL_TRIANGLES vertex list directyly.
+TODO: Integrate loader into a Model class, with Material group and transformations.
 """
 import random
-
 import pyglet.window
 from tools.definitions import *
 from tools.camera import Camera3D

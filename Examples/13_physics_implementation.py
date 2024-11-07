@@ -83,7 +83,7 @@ class MyApp(pyglet.window.Window):
             self.kinematic_body.update()
 
         for body in self.bodies[:]:
-            if body.position.y < -2000:
+            if body.pip_position.y < -2000:
                 body.delete()
                 self.bodies.remove(body)
             else:
@@ -115,7 +115,7 @@ class MyApp(pyglet.window.Window):
             if modifiers & pyglet.window.key.MOD_CTRL:
                 self.platform.angle += dy * 0.005
             if self.kinematic_body:
-                self.kinematic_body.position = self.camera.get_mouse()
+                self.kinematic_body.pip_position = self.camera.get_mouse()
 
     def on_key_press(self, symbol: int, modifiers: int) -> None:
         super(MyApp, self).on_key_press(symbol, modifiers)

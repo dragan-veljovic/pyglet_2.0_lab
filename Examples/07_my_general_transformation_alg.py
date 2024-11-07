@@ -130,7 +130,7 @@ class App(pyglet.window.Window):
                                             anchor=np.array((self.width / 2, self.height / 2, 0)),
                                             ).flatten()
 
-        self.vertex_list.position[:] = self.line_points
+        self.vertex_list.pip_position[:] = self.line_points
 
     def rotate_screen_grid_vertices(self, theta):
         self.line_points = linear_transform_vertices(self.line_points,
@@ -138,7 +138,7 @@ class App(pyglet.window.Window):
                                                      jt=np.array([np.sin(theta), np.cos(theta), 0]),
                                                      anchor=np.array((self.width / 2, self.height / 2, 0)),
                                                      )
-        self.vertex_list.position[:] = self.line_points
+        self.vertex_list.pip_position[:] = self.line_points
 
     def shear_screen_grid(self, jx):
         points = np.array(self.line_points).reshape((len(self.line_points) // 3, 3))
@@ -148,7 +148,7 @@ class App(pyglet.window.Window):
                                             anchor=np.array((self.width // 2, self.height // 2, 0)),
                                             ).flatten()
 
-        self.vertex_list.position[:] = self.line_points
+        self.vertex_list.pip_position[:] = self.line_points
 
     def test_screen_grid(self, ix, iy, jx, jy):
         points = np.array(self.line_points).reshape((len(self.line_points) // 3, 3))
@@ -158,13 +158,13 @@ class App(pyglet.window.Window):
                                             anchor=np.array((self.width // 2, self.height // 2, 0)),
                                             ).flatten()
 
-        self.vertex_list.position[:] = self.line_points
+        self.vertex_list.pip_position[:] = self.line_points
 
     def twist_screen_grid(self, angle):
         points = np.array(self.line_points).reshape((len(self.line_points) // 3, 3))
         self.line_points = np.array(twist(points, (self.width // 2, self.height // 2, 0), angle)).flatten()
 
-        self.vertex_list.position[:] = self.line_points
+        self.vertex_list.pip_position[:] = self.line_points
 
     def on_draw(self):
         self.clear()

@@ -110,7 +110,7 @@ class App(pyglet.window.Window):
         """A rotation of cubes around 0,0,0 with the CPU"""
         for cube in self.cubes:
             cube.vertices = rotate_points(cube.vertices, yaw=1/60)
-            cube.vertex_list.position[:] = cube.get_gl_lines_vertices()
+            cube.vertex_list.pip_position[:] = cube.get_gl_lines_vertices()
 
     def toggle_rotation_mode(self):
         self.CPU_rotation = not self.CPU_rotation

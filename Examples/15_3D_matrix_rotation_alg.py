@@ -195,7 +195,7 @@ class App(pyglet.window.Window):
         if symbol == pyglet.window.key.R:
             self.points = rotate_points(self.points, roll=0.1, yaw=0.1, anchor=(0, 0, 0))
             vertices = gr.get_gl_lines_vertices_numpy(self.points)
-            self.line.position[:] = vertices
+            self.line.pip_position[:] = vertices
 
     def apply_rotation(self):
         for n in range(self.number):

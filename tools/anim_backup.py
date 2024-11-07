@@ -53,7 +53,7 @@ class LinearMoveCustom(Animation):
             self.delta_s_mag = (self.delta_s.x**2 + self.delta_s.y**2) ** 0.5
             self.chunk_mag = (self.chunk.x**2 + self.chunk.y**2) ** 0.5
 
-        self.object.position += self.chunk
+        self.object.pip_position += self.chunk
         self.delta_s_mag -= self.chunk_mag
 
         if self.delta_s_mag <= 0:
@@ -130,14 +130,14 @@ class MoveBACKUP(Animation):
         else:
             percent = self.frames / self.max_frames
             t = self.function(percent)
-            self.object.position = self.position_vector.lerp(self.destination_vector, t)
+            self.object.pip_position = self.position_vector.lerp(self.destination_vector, t)
             self.frames += 1
 
     def reset(self):
         """ Resets animations attributes, so it can be played again (when looping)"""
         self.frames = 0
         self.running = True
-        self.object.position = self.start_vector
+        self.object.pip_position = self.start_vector
 
 class Move(Animation):
     """
@@ -181,7 +181,7 @@ class Move(Animation):
         else:
             percent = self.frames / self.max_frames
             t = self.function(percent)
-            self.object.position = self.position_vector.lerp(self.destination_vector, t)
+            self.object.pip_position = self.position_vector.lerp(self.destination_vector, t)
             self.frames += 1
 
     def reset(self):
@@ -189,7 +189,7 @@ class Move(Animation):
         self.frames = 0
         self.running = True
         self._set_start_vector()  # needed in sequential manager mode
-        self.object.position = self.start_vector
+        self.object.pip_position = self.start_vector
 
 class AnimationManagerObsolete:
     """
@@ -484,7 +484,7 @@ class AnimationManagerV3:
 
     def _restore_initial_positions(self):
         for obj, pos in self.objects_and_origins.items():
-            obj.position = pos
+            obj.pip_position = pos
 
     def reset_all(self):
         self._task_index = 0

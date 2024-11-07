@@ -147,19 +147,19 @@ class Move(Animation):
         else:
             percent = self.frames / self.max_frames
             t = self.function(percent)
-            self.object.position = self.current_param_value.lerp(self.final_param_value, t)
+            self.object.pip_position = self.current_param_value.lerp(self.final_param_value, t)
             self.frames += 1
 
     def reset(self):
         """ Resets animations attributes, so it can be played again (when looping)"""
         self.frames = 0
         self.running = True
-        self.object.position = self.start_param_value
+        self.object.pip_position = self.start_param_value
         self.current_param_value = None
 
     def complete(self):
         """ Completes animation by stopping interpolation and assigning final param value."""
-        self.object.position = self.final_param_value
+        self.object.pip_position = self.final_param_value
 
 
 class AnimationManagerV3:
