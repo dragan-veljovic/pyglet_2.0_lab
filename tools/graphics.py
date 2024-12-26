@@ -241,6 +241,7 @@ class TextureGroup(Group):
             self,
             texture: Texture,
             program: ShaderProgram,
+            transparency: bool = True,
             order=0, parent=None
     ):
         """
@@ -255,16 +256,21 @@ class TextureGroup(Group):
         super().__init__(order, parent)
         self.texture = texture
         self.program = program
+        self.transparency = transparency
 
     def set_state(self):
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(self.texture.target, self.texture.id)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        if self.transparency:
+            glDepthMask(GL_FALSE)
         self.program.use()
 
     def unset_state(self):
         glDisable(GL_BLEND)
+        if self.transparency:
+            glDepthMask(GL_TRUE)
         self.program.stop()
 
     def __hash__(self):
@@ -274,6 +280,36 @@ class TextureGroup(Group):
         return (self.__class__ is other.__class__ and
                 self.texture.target == other.texture.target and
                 self.texture.id == other.texture.id and
+                self.order == other.order and
+                self.program == other.program and
+                self.parent == other.parent)
+
+
+class BlendGroup(pyglet.graphics.Group):
+    def __init__(self, program, order=0, parent=None):
+        """
+        GL_DEPTH_TEST seems to interfere with VertexList Alpha setting, not allowing for transparency.
+        This Group avoids writing depth data if object is set as not visible, allowing Alpha settings to take effect.
+        """
+        super(BlendGroup, self).__init__(order, parent)
+        self.program = program
+        self.visible = True
+
+    def set_state(self):
+        if not self.visible:
+            glDepthMask(GL_FALSE)  # Disable writing to the depth buffer
+        self.program.use()
+
+    def unset_state(self):
+        if not self.visible:
+            glDepthMask(GL_TRUE)  # Re-enable writing to the depth buffer
+        self.program.stop()
+
+    def __hash__(self):
+        return hash((self.order, self.parent, self.program))
+
+    def __eq__(self, other):
+        return (self.__class__ is other.__class__ and
                 self.order == other.order and
                 self.program == other.program and
                 self.parent == other.parent)

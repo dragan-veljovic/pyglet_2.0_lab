@@ -49,6 +49,9 @@ class PointLight:
     def get_light_view(self):
         return pyglet.math.Mat4.look_at(self.position, Vec3(0, 0, 0), Vec3(0, 1, 0))
 
+    def get_light_proj(self):
+        return pyglet.math.Mat4.perspective_projection(16/9, 1, 5000, 50)
+
 
 class App(pyglet.window.Window):
     def __init__(self, **kwargs):

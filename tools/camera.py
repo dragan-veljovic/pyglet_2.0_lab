@@ -1,6 +1,5 @@
 
 import weakref
-
 import pyglet
 from pyglet.math import *
 import math
@@ -122,7 +121,10 @@ class Camera2D:
 
 
 class Camera3D:
-    """3D perspective camera functionality with builtin FPS style controls. Use CTRL+C to toggle controls."""
+    """3D perspective camera functionality with builtin FPS style controls. Use CTRL+C to toggle controls.
+    TODO: Pitch, Yaw and roll should be updated when look_at, position or target are called
+    TODO: but _update_angles() is not working
+    """
     def __init__(
             self,
             window: pyglet.window.Window,
@@ -196,8 +198,10 @@ class Camera3D:
         self._window.view = Mat4.look_at(self._position, self._target, self._up)
 
     def _update_angles(self):
-        """If target or position are set, update angles to match this orientation."""
-        self._yaw = -math.acos(self._front.x) * self._position.z / abs(self.position.z)
+        """If target or position are set, update angles to match this orientation.
+        NOT WORKING PROPERLY when look_at is used
+        """
+        self._yaw = -math.acos(self._front.x)
         self._pitch = math.asin(self._front.y)
 
     def _update_front(self):
@@ -222,9 +226,9 @@ class Camera3D:
         if target:
             self._target = target
 
-        self._front = (self._target - self._position).normalize()
-        self._update_angles()
         self._window.view = Mat4.look_at(self._position, self._target, self._up)
+        self._front = (self._target - self._position).normalize()
+        # self._update_angles()  # not working properly
 
     def on_resize(self, width, height):
         """To set up custom projection matrix, default on_resize() must be overridden."""

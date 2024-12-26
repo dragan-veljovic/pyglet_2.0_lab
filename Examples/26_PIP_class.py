@@ -1,9 +1,7 @@
 """
 PIP class for easy instantiation of picture-in-picture views.
-TODO: Fix camera mouse problems, why on_resize() must be called to restore view in on_draw?
-TODO: add getter setters in PIP class to control PIP view
-TODO: calling two render commands in on_draw for each buffer is clumsy
 """
+import copy
 
 import pyglet.math
 from tools.definitions import *
@@ -11,7 +9,7 @@ from tools.camera import *
 from tools.graphics import *
 
 settings = {
-    'default_mode': False,
+    'default_mode': True,
     'width': 1280,
     'height': 720,
     'fps': 60,
@@ -51,9 +49,9 @@ class PIP:
     def __init__(
             self,
             window: Window,
-            batch: Batch,  # scene to draw
+            batch: Batch,
             pip_position=Vec3(0, 0, 0),
-            pip_width=200,
+            pip_width=300,
             pip_height=200,
             program: ShaderProgram = None,
             group: Group = None,
@@ -62,94 +60,119 @@ class PIP:
             cam_projection: Mat4 = None,
             color_att=True,
             depth_att=False,
-            message: str = None
+            message: str = None,
+            border: bool = True
     ):
         """
         A picture-in-picture functionality using Framebuffers.
         Pass a batch and camera view parameters to render to 2D texture.
+        Call Framebuffer.render() in your on_draw() after drawing your main scene batch.
         Texture will be placed on the screen through passed position and size parameters.
         """
         self.window = weakref.proxy(window)
+        # batch and program of scene to render
         self.batch = batch
-        self.pip_batch = pyglet.graphics.Batch()
         self.program = program
-        self.pip_program = self.get_shader_program()
+        # batch and program for pip texture drawing
+        self.pip_batch = pyglet.graphics.Batch()
+        self.pip_program = self._get_shader_program()
+
         self.pip_position = pip_position
         self.width = pip_width
         self.height = pip_height
         self.message = message
+        self.border = border
 
         # framebuffer creation
         self.framebuffer = pyglet.image.buffer.Framebuffer()
         if color_att:
-            self.texture = pyglet.image.Texture.create(self.window.width, self.window.height, min_filter=GL_LINEAR,
-                                                       mag_filter=GL_LINEAR)
+            self.texture = pyglet.image.Texture.create(
+                self.window.width, self.window.height, min_filter=GL_LINEAR, mag_filter=GL_LINEAR
+            )
             self.framebuffer.attach_texture(self.texture, attachment=GL_COLOR_ATTACHMENT0)
         else:
             self.texture = None
         if depth_att:
-            self.renderbuffer = pyglet.image.buffer.Renderbuffer(self.width, self.height, GL_DEPTH_COMPONENT)
+            self.renderbuffer = pyglet.image.buffer.Renderbuffer(self.window.width, self.window.height, GL_DEPTH_COMPONENT)
             self.framebuffer.attach_renderbuffer(self.renderbuffer, attachment=GL_DEPTH_ATTACHMENT)
         else:
             self.renderbuffer = None
 
+        # enable texturing and bind texture
         self.group = group
         if not group and self.texture:
             self.group = TextureGroup(self.texture, self.pip_program)
-        self.cam_position = cam_position
-        self.cam_target = cam_target
-        self.cam_projection = cam_projection or pyglet.math.Mat4.perspective_projection(
+
+        # pip camera view
+        self._cam_position = cam_position
+        self._cam_target = cam_target
+        self._cam_projection = cam_projection or pyglet.math.Mat4.perspective_projection(
             self.window.width/self.window.height, 1, 5000, fov=50,
         )
-        self.view = self.get_view()
+        self._view = self._get_view()
+        self._current_view = self.window.view
+        self._current_proj = self.window.projection
 
         # a quad plane to attach texture to
-        self.vertex_list = self.get_vertex_list()
+        self.vertex_list = self._get_vertex_list()
 
-    def render_buffer(self):
+        # pip border and label
+        self.rectangle = pyglet.shapes.Box(0, 0, self.window.width, self.window.height, 5)
+        self.label = pyglet.text.Label(self.message, 10, 10, font_size=40) if self.message else None
+
+    def render(self):
+        self._render_buffer()
+        self._render_pip()
+
+    def _save_window_view(self):
+        self._current_view = copy.deepcopy(self.window.view)
+        self._current_proj = copy.deepcopy(self.window.projection)
+
+    def _reset_window_view(self):
+        self.window.view = self._current_view
+        self.window.projection = self._current_proj
+
+    def _render_buffer(self):
+        """Render passed batch from given view angle into texture."""
         # record current window view and projection
-        current_view = self.window.view
-        current_proj = self.window.projection
+        self._save_window_view()
 
         # set assigned view and projection
-        self.window.view = self.view
-        self.window.projection = self.cam_projection
+        self.window.view = self._view
+        self.window.projection = self._cam_projection
 
         # render scene from given view
         self.framebuffer.bind()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)  # Clear buffer
-        glClearColor(0.2, 0.0, 0.0, 1.0)
         self.batch.draw()
         self.framebuffer.unbind()
-        set_background_color()
 
         # reset view
-        self.window.view = current_view
-        self.window.projection = current_proj
+        self._reset_window_view()
 
-    def render_pip(self):
+    def _render_pip(self):
+        """Render contents of the """
         # saving view
-        current_view = self.window.view
-        current_proj = self.window.projection
+        self._save_window_view()
 
         # setting up 2D orthogonal projection
         self.window.projection = pyglet.math.Mat4.orthogonal_projection(0, self.window.width, 0, self.window.height, -1, 1)
         self.window.view = pyglet.math.Mat4()
         glViewport(int(self.pip_position.x), int(self.pip_position.y), int(self.width), int(self.height))
 
-        self.rectangle = pyglet.shapes.Box(0, 0, self.window.width, self.window.height, 5)
         if self.message:
-            self.label = pyglet.text.Label(self.message, 10, 10, font_size=40)
             self.label.draw()
-
-        self.rectangle.draw()
+        if self.border:
+            self.rectangle.draw()
         self.pip_batch.draw()
 
         # resetting view
-        self.window.view = current_view
-        self.window.proj = current_proj
+        self._reset_window_view()
 
-    def get_vertex_list(self):
+        # reset Viewport
+        pyglet.gl.glViewport(0, 0, *self.window.get_framebuffer_size())
+
+    def _get_vertex_list(self):
         # return vertex list of a textured quad
         w, h = self.window.width, self.window.height  # entire screen rendered
         position = (
@@ -166,10 +189,10 @@ class PIP:
             tex_coords=('f', tex_coords)
         )
 
-    def get_view(self):
-        return pyglet.math.Mat4.look_at(self.cam_position, self.cam_target, Vec3(0, 1, 0))
+    def _get_view(self):
+        return pyglet.math.Mat4.look_at(self._cam_position, self._cam_target, Vec3(0, 1, 0))
 
-    def get_shader_program(self):
+    def _get_shader_program(self):
         pip_vertex_source = """#version 330 core
             in vec3 position;
             in vec2 tex_coords;
@@ -213,6 +236,24 @@ class PIP:
             Shader(pip_fragment_source, 'fragment')
         )
 
+    @property
+    def cam_position(self):
+        return self._cam_position
+
+    @cam_position.setter
+    def cam_position(self, position: Vec3):
+        self._cam_position = position
+        self._view = self._get_view()
+
+    @property
+    def cam_target(self):
+        return self._cam_target
+
+    @cam_target.setter
+    def cam_target(self, target: Vec3):
+        self._cam_target = target
+        self._view = self._get_view()
+
 
 class App(pyglet.window.Window):
     def __init__(self, **kwargs):
@@ -220,9 +261,13 @@ class App(pyglet.window.Window):
         center_window(self)
         set_background_color()
         self.batch = pyglet.graphics.Batch()
+
         self.camera = Camera3D(self)
-        self.camera_2D = Camera2D(self, mouse_controls=False, centered=False)
         self.camera.look_at(Vec3(-200, 500, 500), Vec3(0, 0, 0))
+        # fix problem with Camera3D.look_at updating angles
+        self.camera._yaw = -math.acos(self.camera._front.x)
+        self.camera._pitch = math.asin(self.camera._front.y)
+
         self.program = ShaderProgram(
             Shader(vertex_source, 'vertex'),
             Shader(fragment_source, 'fragment')
@@ -240,46 +285,43 @@ class App(pyglet.window.Window):
 
         glEnable(GL_DEPTH_TEST)
 
+        # PIP dimensions
+        width = int(self.width/3)
+        height = int(self.height/3)
+
         # instantiating framebuffers
         self.framebuffer1 = PIP(self, self.batch,
-                                Vec3(self.width - 500, self.height - self.height/3, 0),
-                                pip_width=500, pip_height=self.height//3,
-                                message="Framebuffer 1 view"
+                                Vec3(self.width - width, self.height - self.height/3, 0),
+                                cam_position=Vec3(0, 200, 700),
+                                pip_width=width, pip_height=height,
+                                message="Updating view", border=True
                                 )
 
         self.framebuffer2 = PIP(self, self.batch,
-                                Vec3(self.width - 500, self.height - 2*self.height/3),
-                                pip_width=500, pip_height=self.height//3,
+                                Vec3(self.width - width, self.height - 2*self.height/3),
+                                pip_width=width, pip_height=height,
                                 cam_position=Vec3(1000, 500, 1000),
                                 message="Framebuffer 2 view")
 
         self.framebuffer3 = PIP(self, self.batch,
-                                Vec3(self.width - 500, self.height - 3*self.height/3),
-                                pip_width=500, pip_height=self.height//3,
+                                Vec3(self.width - width, self.height - 3*self.height/3),
+                                pip_width=width, pip_height=height,
                                 cam_position=Vec3(0, 1000, 1),
                                 message="Top View")
 
     def on_draw(self) -> None:
-        # rendering to framebuffer texture
-        self.framebuffer1.render_buffer()
-        self.framebuffer2.render_buffer()
-        self.framebuffer3.render_buffer()
+        # update cam position
+        self.framebuffer1.cam_position = self.framebuffer1.cam_position + Vec3(1, 0, 0)
 
-        self.framebuffer1.cam_position.x += 1
-        self.framebuffer1.view = self.framebuffer1.get_view()
-
-        # redering in default buffer
+        # rendering in default buffer
         self.clear()
-        self.camera.look_at(self.camera.position, self.camera.target)  # reseting view to default
         self.batch.draw()
 
-        # rendering contents of framebuffer texture
-        self.framebuffer1.render_pip()
-        self.framebuffer2.render_pip()
-        self.framebuffer3.render_pip()
+        # rendering framebuffer
+        self.framebuffer1.render()
+        self.framebuffer2.render()
+        self.framebuffer3.render()
 
-        # must be added to restore view?
-        self.camera.on_resize(self.height, self.width)
 
 if __name__ == '__main__':
     start_app(App, settings)
