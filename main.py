@@ -1,24 +1,20 @@
 """
-Shadow mapping notes:
-1) render scene from light's perspective, z-distance is stored in the depth (shadow) map, and shows distance of the closest
-fragment to the light (one hit first)
-2) render fragments from viewer's perspective. To apply shadows, every observed fragment "P" (point) must first\
- be transformed to light perspective, by multiplying with light's view and proj matrix.
-Remember that transformations change xyz coordinates from world space, so now z coordinate of "P" is the depth distance
-from the light source to the observed fragment.
-Use observed fragment "P" to index shadow map from previous pass, and obtain the closest visible depth from shadow map.
-If map returns smaller depth than z-coordinate of P, we can conclude that is in shadow.
+Improvements to 27_basic_shadow_map.
+Avoided double batches by extracting domain from the main scene batch, and
+changing the shader just before the draw call.
 """
 
 import math
 
 import pyglet.math
+
+import tools.color
 from tools.definitions import *
 from tools.camera import Camera3D
 from tools.graphics import *
 
 settings = {
-    'default_mode': False,
+    'default_mode': True,
     'width': 1920,
     'height': 1080,
     'fps': 100
@@ -68,6 +64,7 @@ in vec4 frag_shadow_coords;
 out vec4 final_colors;
 
 uniform sampler2D shadow_map;
+uniform float shadow_bias;
 
 float get_shadow_factor(vec4 shadow_coords) {
     // Perform perspective divide
@@ -83,7 +80,7 @@ float get_shadow_factor(vec4 shadow_coords) {
     float current_depth = proj_coords.z;
 
     // Check if the fragment is in shadow
-    return (current_depth > closest_depth + 0.005) ? 0.5 : 1.0; // Bias to reduce artifacts
+    return (current_depth > closest_depth + shadow_bias) ? 0.5 : 1.0; // Bias to reduce artifacts
 }
 
 void main() {
@@ -138,12 +135,15 @@ class PointLight:
         self.ambient = ambient
         self.diffuse = diffuse
         self.specular = specular
+        self.z_near = 200
+        self.z_far = 3000
+        self.fov = 60
 
     def get_light_view(self):
         return pyglet.math.Mat4.look_at(self.position, Vec3(0, 0, 0), Vec3(0, 1, 0))
 
     def get_light_proj(self):
-        return pyglet.math.Mat4.perspective_projection(SHADOW_WIDTH / SHADOW_HEIGHT, 200, 3000, 60)
+        return pyglet.math.Mat4.perspective_projection(SHADOW_WIDTH / SHADOW_HEIGHT, self.z_near, self.z_far, self.fov)
 
 
 class App(pyglet.window.Window):
@@ -174,39 +174,46 @@ class App(pyglet.window.Window):
         # light
         self.light = PointLight(Vec3(-500, 600, 700), color=(255, 255, 255, 255))
         # visual representation of the light with sprite
-        # self.light_sprite = pyglet.sprite.Sprite(
-        #     pyglet.image.load('res/textures/whitelight.png'),
-        #     self.light.position.x, self.light.position.y, self.light.position.z
-        # )
+        self.light_sprite = pyglet.sprite.Sprite(
+            pyglet.image.load('res/textures/flare.png'),
+            self.light.position.x, self.light.position.y, self.light.position.z
+        )
 
         glEnable(GL_DEPTH_TEST)
 
         # main scene elements
         self.floor = TexturedPlane(
-            (-500, -500, -500), self.batch, None, self.program, 1000, 1000, rotation=(np.pi / 2, 0, 0),
+            (-750, -500, -500), self.batch, None, self.program, 1500, 1000, rotation=(np.pi / 2, 0, 0),
             color=(100, 100, 100, 255)
         )
         self.back_wall = TexturedPlane(
-            (-500, -500, -500), self.batch, None, self.program, 1000, 1000, color=(150, 150, 150, 255)
+            (-750, -500, -500), self.batch, None, self.program, 1500, 1000, color=(150, 150, 150, 255)
         )
         self.cube = Cuboid(self.program, self.batch, color=(164, 0, 0, 255))
+        self.cube2 = Cuboid(
+            self.program, self.batch, color=(*tools.color.CORDOVAN, 255), position=(-200, -200, -300)
+        )
+        self.cube2 = Cuboid(
+            self.program, self.batch, color=(*tools.color.ORANGE_RED, 255),
+            position=(200, -200, -300), size=(100, 800, 300)
+        )
 
-        # shadow map scene elements (has to repeat?)
-        self.floor = TexturedPlane(
-            (-500, -500, -500), self.shadow_batch, None, self.shadow_program, 1000, 1000, rotation=(np.pi / 2, 0, 0),
-            color=(150, 150, 150, 255)
-        )
-        self.back_wall = TexturedPlane(
-            (-500, -500, -500), self.shadow_batch, None, self.shadow_program, 1000, 1000, color=(150, 150, 150, 255)
-        )
-        self.cube = Cuboid(self.shadow_program, self.shadow_batch, color=(128, 0, 0, 255))
+        self.domain = self.batch.get_domain(False, False, GL_TRIANGLES,
+                                            pyglet.graphics.ShaderGroup(program=self.program),
+                                            self.program.attributes)
 
         self.depth_data = None
+        self.shadow_bias = None
+        self.set_shadow_bias()
         self.render_shadow_batch = False
         self.timer = 0.0
         self.move_light = True
 
         self.create_shadow_fbo()
+
+    def set_shadow_bias(self, value=0.005):
+        self.shadow_bias = value
+        self.program['shadow_bias'] = self.shadow_bias
 
     def create_shadow_fbo(self):
         """Create framebuffer and attach the depth texture."""
@@ -243,9 +250,24 @@ class App(pyglet.window.Window):
         glClear(GL_DEPTH_BUFFER_BIT)
         self.shadow_program['light_proj'] = self.light.get_light_proj()
         self.shadow_program['light_view'] = self.light.get_light_view()
-        self.shadow_batch.draw()
+
+        glUseProgram(self.shadow_program._id)
+        self.domain.draw(GL_TRIANGLES)
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
         glViewport(0, 0, self.width, self.height)
+
+    def rotate_cube(self, angle):
+        indices = [
+            0, 1, 2, 0, 2, 3,  # front face
+            5, 4, 7, 5, 7, 6,  # back face
+            4, 0, 3, 4, 3, 7,  # left face
+            1, 5, 6, 1, 6, 2,  # right face
+            3, 2, 6, 3, 6, 7,  # top face
+            4, 5, 1, 4, 1, 0,  # bottom face
+        ]
+        vertices = np.array([self.cube.vertices[idx] for idx in indices])
+        vertices_rotated = rotate_points(vertices, yaw=-angle, anchor=(self.cube.position))
+        self.cube.vertex_list.position[:] = vertices_rotated.flatten()
 
     def fetch_depth_data(self):
         """Use or inspect data from the depth texture attachment."""
@@ -276,6 +298,8 @@ class App(pyglet.window.Window):
             self.light.position.y = 500 * math.cos(self.timer)
 
     def on_draw(self):
+        self.timer += 1/settings['fps']
+        self.rotate_cube(self.timer)
         # Render shadow map (first pass)
         self.render_shadow_map()
 
@@ -288,21 +312,35 @@ class App(pyglet.window.Window):
         # Render main or the shadow batch
         self.clear()
         if self.render_shadow_batch:
-            self.shadow_batch.draw()
+            self.domain.draw(GL_TRIANGLES)
         else:
             self.batch.draw()
 
     def on_key_press(self, symbol: int, modifiers: int) -> None:
         super(App, self).on_key_press(symbol, modifiers)
         # check contents of the depth data
-        if symbol == pyglet.window.key.X:
-            self.render_shadow_batch = not self.render_shadow_batch
         if symbol == pyglet.window.key.SPACE:
             self.move_light = not self.move_light
-        if symbol == pyglet.window.key.B:
+        elif symbol == pyglet.window.key.X:
+            self.render_shadow_batch = not self.render_shadow_batch
+        elif symbol == pyglet.window.key.B:
             depth_data = self.fetch_depth_data().flatten()
             print("shadow map resolution", depth_data.shape)
             print(self.fetch_depth_data())
+        elif symbol == pyglet.window.key.R:
+            self.shadow_bias += 0.001
+            self.program['shadow_bias'] = self.shadow_bias
+        elif symbol == pyglet.window.key.F:
+            self.shadow_bias -= 0.001
+            self.program['shadow_bias'] = self.shadow_bias
+        elif symbol == pyglet.window.key.T:
+            self.light.z_near += 10
+        elif symbol == pyglet.window.key.G:
+            self.light.z_near -= 10
+        elif symbol == pyglet.window.key.Y:
+            self.light.fov += 2
+        elif symbol == pyglet.window.key.H:
+            self.light.fov -= 2
 
 
 if __name__ == '__main__':

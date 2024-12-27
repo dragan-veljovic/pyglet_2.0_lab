@@ -48,7 +48,7 @@ def rotate_points(
     rot_x = np.array([
         [1, 0, 0],
         [0, cx, sx],
-        [0, sx, cx]
+        [0, -sx, cx]
     ])
 
     # y-axis rotation matrix (yaw)
@@ -321,7 +321,7 @@ class TexturedPlane:
             position: tuple[float, float, float],
             batch, group, program: ShaderProgram,
             length=300, height=200, rotation=(0, 0, 0),
-            color = None,
+            color=None,
     ):
         """
         A 2D textured plane in a 3D space.
