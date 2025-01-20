@@ -126,7 +126,7 @@ class App(pyglet.window.Window):
         self.time = 0.0
         self.run = True
 
-        pyglet.resource.path = ['res/textures/']
+        pyglet.resource.path = ['../res/textures/']
         pyglet.resource.reindex()
         self.texture = pyglet.resource.texture('img.png')
         self.texture2 = pyglet.resource.texture('brick_wall.jpg')
