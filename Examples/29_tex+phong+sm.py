@@ -1,6 +1,5 @@
 """
 Texturing, Phong lighting and shadow map combined.
-TODO: model textures cannot be displayed when group is passed during vertex list creation, only inherit from before
 """
 
 import math
@@ -228,6 +227,7 @@ class App(pyglet.window.Window):
 
         self.rock_group = TextureGroup(pyglet.image.load('res/textures/rock_2K.jpg').get_texture(), self.program)
         self.wall_group = TextureGroup(pyglet.image.load('res/textures/brick_wall.jpg').get_texture(), self.program)
+        self.car_group = TextureGroup(pyglet.image.load('model/porsche/0000.BMP').get_texture(), self.program)
 
         # main scene elements
         self.back_wall = TexturedPlane(
@@ -237,10 +237,6 @@ class App(pyglet.window.Window):
             (-750, -500, -500), self.batch, self.rock_group, self.program, 1500, 1000, rotation=(np.pi / 2, 0, 0),
             color=(100, 100, 100, 255)
         )
-        # self.cube = Cuboid(
-        #     self.program, self.batch, color=(164, 0, 0, 255),
-        #     texture=pyglet.image.load('res/textures/img.png').get_texture()
-        # )
 
         self.cube2 = Cuboid(
             self.program, self.batch, position=(500, 0, -200), size=(100, 750, 300),
@@ -255,6 +251,7 @@ class App(pyglet.window.Window):
         self.model = self.program.vertex_list(
             count=count,
             mode=GL_TRIANGLES,
+            group=self.car_group,
             batch=self.batch,
             position=('f', position),
             colors=('f', (0.5, 0., 0., 1.0) * count),

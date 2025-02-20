@@ -241,7 +241,7 @@ class TextureGroup(Group):
             self,
             texture: Texture,
             program: ShaderProgram,
-            transparency: bool = True,
+            transparency: bool = False,
             order=0, parent=None
     ):
         """
