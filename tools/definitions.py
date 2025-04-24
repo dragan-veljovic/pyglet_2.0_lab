@@ -14,8 +14,9 @@ def set_background_color(r: int = 20, g: int = 30, b: int = 40, a=255):
 
 
 def center_window(window: pyglet.window.Window):
+    pass
     """ Centers passed window if entire window can fit in a current display resolution."""
-    desk_res = pyglet.canvas.Display().get_default_screen()
+    desk_res = pyglet.display.Display().get_default_screen()
     width, height = window.width, window.height
     if desk_res.width > width and desk_res.height > height:
         window.set_location((desk_res.width - window.width) // 2,
@@ -75,7 +76,7 @@ def start_app(window_ref: Type[pyglet.window.Window], arguments: dict = None) ->
     fps = window_arguments.pop('fps') if 'fps' in window_arguments else 60
 
     if default_mode:
-        display = pyglet.canvas.get_display()
+        display = pyglet.display.get_display()
         screen = display.get_default_screen()
         current_mode = screen.get_mode()
         width, height = current_mode.width, current_mode.height
