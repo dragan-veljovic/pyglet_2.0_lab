@@ -391,6 +391,90 @@ class TexturedPlane:
         )
 
 
+class NormalMappedTexturedPlane:
+    def __init__(
+            self,
+            position: tuple[float, float, float],
+            batch, group, program: ShaderProgram,
+            length=300, height=200, rotation=(0, 0, 0),
+            color=None,
+    ):
+        """
+        A 2D textured plane in a 3D space.
+        Position parameter is lower-left corner of the rectangle.
+        Vertical rectangle is assumed at initiation, which is then rotated around lower-left corner
+        with rotation parameter, representing a tuple of Oiler angles (pitch, yaw, roll) in radians.
+        """
+        self.position = position  # lower left corner of the rect
+        self.x, self.y, self.z = position
+        self.batch = batch
+        self.group = group
+        self.program = program
+        self.length = length
+        self.height = height
+        self.rotation = rotation  # tuple of pitch, yaw, and roll angles in radians, respectively
+        self.pitch, self.yaw, self.roll = rotation
+
+        self.color = color or (255, 255, 255, 255)
+
+        vertices = np.array((
+            (self.x, self.y, self.z),
+            (self.x + length, self.y, self.z),
+            (self.x + length, self.y + height, self.z),
+            (self.x, self.y + height, self.z)
+        ))
+
+        vertex_normals = np.array((
+            (0, 0, 1),
+            (0, 0, 1),
+            (0, 0, 1),
+            (0, 0, 1)
+        ))
+
+        # rotation factor
+        vertices = rotate_points(vertices, self.pitch, self.yaw, self.roll, anchor=self.position)
+        vertex_normals = rotate_points(vertex_normals, self.pitch, self.yaw, self.roll)
+
+        # normalizing rotated normals
+        magnitude = np.linalg.norm(vertex_normals, axis=1, keepdims=True)
+        vertex_normals = vertex_normals / magnitude
+
+        texture_coordinates = np.array((
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.0, 1.0),
+        ), dtype=np.float32)
+
+        # indexing
+        indices = (0, 1, 2, 0, 2, 3)
+        gl_triangles_vertices = []
+        tex_coords = []
+        normals = []
+        for idx in indices:
+            gl_triangles_vertices.extend(vertices[idx])
+            tex_coords.extend(texture_coordinates[idx])
+            normals.extend(vertex_normals[idx])
+
+        # calculating TBN
+        tangent, bitangent = get_tangent_and_bitangent_vectors(
+            vertices[0], vertices[1], vertices[2],
+            texture_coordinates[0], texture_coordinates[1], texture_coordinates[2]
+        )
+
+        # creating vertex buffers
+        count = len(gl_triangles_vertices) // 3
+        self.vertex_list = self.program.vertex_list(
+            count, GL_TRIANGLES, batch, group,
+            position=('f', gl_triangles_vertices),
+            normals=('f', normals),
+            colors=('Bn', self.color * count),
+            tex_coords=('f', tex_coords),
+            tangents=('f', tangent * count),
+            bitangents=('f', bitangent * count)
+        )
+
+
 class WireframeCube:
     """Barebone vertex list of a wireframe GL_LINES cube will be attached to a given program."""
     def __init__(
@@ -547,3 +631,28 @@ class Cuboid:
             r, g, b, a = self.color
             return (r / 255, g / 255, b / 255, a / 255) * (len(self.gl_triangles_vertices) // 3)
 
+
+def get_tangent_and_bitangent_vectors(
+        p1, p2, p3,  # triangle vertices in (x, y, z) format
+        t1, t2, t3,  # triangle vertex texture coordinates in (u, v) format
+) -> tuple[tuple, tuple]:
+    """
+    Helper method to calculate tangent and bitangent vectors using numpy."""
+    # triangle vertices
+
+    delta_uvs = np.array((
+        (t2 - t1),
+        (t3 - t1)
+    ), dtype=np.float32)
+
+    edges = np.array((
+        (p2 - p1),
+        (p3 - p1)
+    ))
+
+    # shortcut to solving following matrix equation
+    # edges = delta_uvs @ TB
+    # TB = 1/det(delta_uvs) * adj(delta_uvs) @ edges
+    TB = np.linalg.solve(delta_uvs, edges).tolist()
+
+    return TB[0], TB[1]
