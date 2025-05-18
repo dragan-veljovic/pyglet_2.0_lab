@@ -114,7 +114,7 @@ class ShadowMap:
         self.program = program
         self.shadow_width = shadow_width
         self.shadow_height = shadow_height
-        self.width, self.height = 3440, 1440
+        self.width, self.height = 3440, 1440  # USE WINDOW
 
         # shader program for the shadow map creation pass
         self.shadow_batch = Batch()
@@ -130,6 +130,10 @@ class ShadowMap:
 
         glClear(GL_DEPTH_BUFFER_BIT)
 
+        glActiveTexture(GL_TEXTURE4)
+        glBindTexture(GL_TEXTURE_2D, self.depth_map)
+        #self.program['shadow_map'] = 4  # Texture unit 4
+
         self.shadow_program['light_proj'] = self.light.proj_matrix
         self.shadow_program['light_view'] = self.light.view_matrix
         self.shadow_batch.draw()
@@ -141,7 +145,6 @@ class ShadowMap:
         shadow_vert = """
             #version 330 core
             in vec3 position;
-            in vec4 colors;
             
             uniform mat4 light_proj;
             uniform mat4 light_view;
@@ -150,13 +153,10 @@ class ShadowMap:
             
             void main(){
                 gl_Position = light_proj * light_view * vec4(position, 1.0);
-                frag_colors = colors;
             }
         """
         shadow_frag = """
             #version 330 core
-            in vec4 frag_colors;
-            
             out vec4 frag_depth;
             
             void main() {

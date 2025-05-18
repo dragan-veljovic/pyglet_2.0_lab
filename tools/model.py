@@ -1,10 +1,11 @@
 import math
 import pyglet
 from pyglet.graphics.shader import ShaderProgram
-from pyglet.graphics import Group
+from pyglet.graphics import Group, Batch
 from pyglet.graphics.vertexdomain import IndexedVertexList
 from pyglet.image import Texture
 from pyglet.gl import *
+from pyglet.math import Vec3, Mat4
 
 
 class DiffuseNormalTextureGroup(Group):
@@ -82,6 +83,60 @@ class DiffuseNormalTextureGroup(Group):
     @property
     def normal_target(self):
         return self.normal.target if self.normal else None
+
+
+def get_model_matrix(
+        position: Vec3,
+        rotation_angle: float,
+        rotation_dir: Vec3,
+        scale: Vec3,
+        origin: Vec3,
+) -> Mat4:
+    translate_to_origin = Mat4.from_translation(-origin)
+    translate_back = Mat4.from_translation(origin)
+
+    rotation = Mat4.from_rotation(rotation_angle, rotation_dir)
+    scale = Mat4.from_scale(scale)
+    translation = Mat4.from_translation(position)
+
+    return translate_back @ translation @ rotation @ translate_to_origin @ scale
+
+import numpy as np
+def get_model_matrix_np(position, rotation_angle, rotation_axis, scale, origin):
+    def translation_matrix(offset):
+        t = np.identity(4, dtype=np.float32)
+        t[:3, 3] = offset
+        return t
+
+    def scale_matrix(scale_factors):
+        s = np.identity(4, dtype=np.float32)
+        s[0, 0], s[1, 1], s[2, 2] = scale_factors
+        return s
+
+    def rotation_matrix(angle, axis):
+        axis = np.array(axis, dtype=np.float32)  # Ensure it's a NumPy array
+        axis = axis / np.linalg.norm(axis)
+        x, y, z = axis
+        c = np.cos(angle)
+        s = np.sin(angle)
+        oc = 1.0 - c
+
+        return np.array([
+            [oc * x * x + c, oc * x * y - z * s, oc * x * z + y * s, 0.0],
+            [oc * x * y + z * s, oc * y * y + c, oc * y * z - x * s, 0.0],
+            [oc * x * z - y * s, oc * y * z + x * s, oc * z * z + c, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ], dtype=np.float32)
+
+    T_origin = translation_matrix(-origin)
+    T_back = translation_matrix(origin)
+    T_position = translation_matrix(position)
+    S = scale_matrix(scale)
+    R = rotation_matrix(rotation_angle, rotation_axis)
+
+    # Final model matrix: T_back * T_position * R * T_origin * S
+    model_matrix = T_back @ T_position @ R @ T_origin @ S
+    return Mat4(*model_matrix.T.flatten())
 
 
 def load_obj_model(filename):
@@ -261,7 +316,7 @@ def load_obj_model(filename):
             final_tex_coords.extend([0.0, 0.0])
 
     return {
-        'positions': final_positions,
+        'position': final_positions,
         'normals': final_normals,
         'tex_coords': final_tex_coords,
         'indices': indices
@@ -498,30 +553,19 @@ def transform_normal(normal, matrix):
     return [0, 0, 1]  # Default fallback
 
 
-def create_mesh_from_obj(
-        filename, batch, group, shader_program,
-        position=(0, 0, 0), rotation=(0, 0, 0), scale=1.0,
-        color=(128, 128, 128, 255), tex_scale: float = None,
-) -> IndexedVertexList:
+def transform_model_data(
+        model_data: dict,
+        position=(0, 0, 0),
+        rotation=(0, 0, 0),
+        scale=1.0,
+        tex_scale: float = None,
+        colors=(255, 255, 255, 255)
+) -> dict:
     """
-    Create a pyglet VertexList from an OBJ file with pre-computed transformations
-
-    Args:
-        filename (str): Path to the .obj file
-        batch (pyglet.graphics.Batch): Batch to add the mesh to
-        group (pyglet.graphics.Group): Group to add the mesh to
-        shader_program (pyglet.graphics.Program): Shader program to use
-        position (tuple): (x, y, z) position for the object
-        rotation (tuple): (x, y, z) rotation in degrees (Euler angles)
-        scale (float or tuple): Uniform scale if float, or (x, y, z) scale factors if tuple
-        color (tuple(int, int, int)) color of an object, if texturing is not used
-        tex_scale (float) scale the texture coordinates, ex. for texture wrapping
-
-    Returns:
-        pyglet.graphics.VertexList: The created vertex list
+    Calculates tangents, bitangents, normals (if not present)
+    and applies transformations to loaded OBJ model data.
+    Returns a dictionary of prepared data, ready to use with IndexedVertexList abstraction.
     """
-    # Load the model data
-    model_data = load_obj_model(filename)
 
     # Create transformation matrix
     transform_matrix = create_transformation_matrix(position, rotation, scale)
@@ -529,7 +573,7 @@ def create_mesh_from_obj(
     # Apply transformations to vertex positions and normals
     transformed_positions = []
     transformed_normals = []
-    original_positions = model_data['positions']
+    original_positions = model_data['position']
     original_normals = model_data['normals']
 
     # Transform each vertex position
@@ -553,23 +597,39 @@ def create_mesh_from_obj(
     )
 
     count = len(transformed_positions) // 3
-    tex_coords = model_data['tex_coords']
-    if tex_scale:
-        tex_coords = [element * tex_scale for element in tex_coords]
 
-    # Create vertex list
-    vertex_list = shader_program.vertex_list_indexed(
-        count,
+    if tex_scale:
+        model_data['tex_coords'] = [element * tex_scale for element in model_data['tex_coords']]
+
+    model_data.update({
+        'count': count,
+        'position': transformed_positions,
+        'normals': transformed_normals,
+        'colors': colors * count,
+        'tangents': tangents,
+        'bitangents': bitangents
+    })
+
+    return model_data
+
+
+def get_vertex_list(
+        model_data: dict,
+        program: ShaderProgram,
+        batch: Batch,
+        group: Group
+) -> IndexedVertexList:
+
+    return program.vertex_list_indexed(
+        model_data['count'],
         pyglet.gl.GL_TRIANGLES,
         model_data['indices'],
         batch,
         group,
-        position=('f', transformed_positions),
-        normals=('f', transformed_normals),
-        tex_coords=('f', tex_coords),
-        colors=('Bn', color * count),
-        tangents=('f', tangents),
-        bitangents=('f', bitangents)
+        position=('f', model_data['position']),
+        normals=('f', model_data['normals']),
+        colors=('Bn', model_data['colors']),
+        tex_coords=('f', model_data['tex_coords']),
+        tangents=('f', model_data['tangents']),
+        bitangents=('f', model_data['bitangents'])
     )
-
-    return vertex_list

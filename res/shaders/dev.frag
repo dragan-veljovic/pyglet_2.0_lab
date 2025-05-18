@@ -41,7 +41,7 @@ uniform float z_far = 5000.0;
 
 
 float get_fade_factor(){
-    float fade_length = 500;
+    float fade_length = 750;
     float fade_start = z_far - fade_length;
     float fade_end = z_far;
     float distance = length(frag_position - view_position);
