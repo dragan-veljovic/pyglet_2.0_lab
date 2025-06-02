@@ -5,6 +5,7 @@ in vec3 normals;
 in vec4 colors;
 in vec3 tangents;
 in vec3 bitangents;
+in vec4 instance_data;
 
 out vec3 frag_position;
 out vec2 frag_tex_coords;
@@ -22,29 +23,40 @@ uniform mat4 light_proj;
 uniform mat4 light_view;
 uniform float time;
 
-// perhaps pass these as a UBO to reduce number of update calls
-uniform bool rendering_dynamic_object = true;
-uniform bool transform_on_gpu = true;
-uniform mat4 model;
+// instance rendering
+uniform bool instance_rendering = false;
+// dynamic rendering
+uniform bool rendering_dynamic_object = false;
+uniform bool transform_on_gpu = false;
+// CPU matrix or model parameters
+uniform mat4 model_precalc;
 uniform vec3 model_position = vec3(0.0);
 uniform vec3 model_rotation = vec3(0.0);
 uniform vec3 model_scale = vec3(1.0);
 uniform vec3 model_origin = vec3(0.0);
 
-mat4 get_model_matrix(){
-    mat4 translate_to_origin = mat4(
+
+
+mat4 get_model_matrix(
+        vec3 model_position,
+        vec3 model_rotation,
+        vec3 model_scale,
+        vec3 model_origin
+) {
+    // translation matrix
+    mat4 translation = mat4(
         1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
         0.0, 0.0, 1.0, 0.0,
-        -model_origin.x, -model_origin.y, -model_origin.z, 1.0
+        model_position.x, model_position.y, model_position.z, 1.0
     );
 
-    // Move object back after rotation
-    mat4 translate_back = mat4(
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        model_origin.x, model_origin.y, model_origin.z, 1.0
+    // scale matrix
+    mat4 scale = mat4(
+        model_scale.x, 0.0, 0.0, 0.0,
+        0.0, model_scale.x, 0.0, 0.0,
+        0.0, 0.0, model_scale.x, 0.0,
+        0.0, 0.0, 0.0, 1.0
     );
 
     // x-rotation
@@ -77,42 +89,71 @@ mat4 get_model_matrix(){
         0.0, 0.0, 0.0, 1.0
     );
 
-    // scale matrix
-    mat4 scale = mat4(
-        model_scale.x, 0.0, 0.0, 0.0,
-        0.0, model_scale.y, 0.0, 0.0,
-        0.0, 0.0, model_scale.z, 0.0,
-        0.0, 0.0, 0.0, 1.0
-    );
-
-    // translation matrix
-    mat4 translation = mat4(
+    // Combine all transformations, allowing for possible custom origin
+    // Order matters: scale first, then rotate, then translate
+    if (model_origin != vec3(0.0))
+    {
+        mat4 translate_to_origin = mat4(
         1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
         0.0, 0.0, 1.0, 0.0,
-        model_position.x, model_position.y, model_position.z, 1.0
-    );
+        -model_origin.x, -model_origin.y, -model_origin.z, 1.0
+        );
 
-    // Combine all transformations
-    // Order matters: scale first, then rotate, then translate
-    // return translation * rotz * roty * rotx * scale;
-    return translation * translate_back * rotx * roty * rotz * translate_to_origin * scale;
+        // Move object back after rotation
+        mat4 translate_back = mat4(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        model_origin.x, model_origin.y, model_origin.z, 1.0
+        );
+
+        return translation * translate_back * rotx * roty * rotz  * scale * translate_to_origin;
+    }
+    else
+    {
+        return translation * rotx * roty * rotz * scale;
+    }
+}
+
+mat4 get_instance_model_matrix(){
+    // Override this with your own custom extraction
+    return get_model_matrix(
+            vec3(instance_data.xy, position.z * 5.0), // extract transltation data
+            vec3(instance_data.z), // extract rotation data
+            vec3(instance_data.w), // extract scale data
+            vec3(0.0)  // default origin
+    );
 }
 
 void main() {
     // whole adjustment should only be done if rendering dynamic object
     // a large static mesh will still be multiplied by default mat3(1.0) wasting resources
-    mat4 model = rendering_dynamic_object ?
-        (transform_on_gpu ? get_model_matrix() : model)
-        : mat4(1.0);
-    mat3 normal_adjustment = rendering_dynamic_object ? mat3(transpose(inverse(model))) : mat3(1.0);
+    mat4 model;
+    if (instance_rendering) {
+        model = get_instance_model_matrix();
+    } else {
+        if (rendering_dynamic_object) {
+            if (transform_on_gpu) {
+                model = get_model_matrix(model_position, model_rotation, model_scale, model_origin);
+            } else {
+                model = model_precalc;
+            }
+        } else {
+            model = mat4(1.0);
+        }
+    }
+
+    // only if dynamic/ instance
+    mat3 normal_adjustment = mat3(transpose(inverse(model)));
+    // mat3 normal_adjustment = rendering_dynamic_object ? mat3(transpose(inverse(model))) : mat3(1.0);
 
     // calculating TBN (should be done only if normal mapping is used)
     vec3 T = normalize(normal_adjustment * tangents);
     vec3 B = normalize(normal_adjustment * bitangents);
     vec3 N = normalize(normal_adjustment * normals);
 
-    // out variables
+    // output attributes
     TBN = mat3(T, B, N);
     frag_tex_coords = tex_coords;
     frag_position = (model * vec4(position, 1.0)).xyz;

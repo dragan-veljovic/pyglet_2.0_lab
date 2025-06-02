@@ -132,7 +132,6 @@ class ShadowMap:
 
         glActiveTexture(GL_TEXTURE4)
         glBindTexture(GL_TEXTURE_2D, self.depth_map)
-        #self.program['shadow_map'] = 4  # Texture unit 4
 
         self.shadow_program['light_proj'] = self.light.proj_matrix
         self.shadow_program['light_view'] = self.light.view_matrix

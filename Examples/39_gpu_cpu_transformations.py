@@ -1,25 +1,40 @@
 """
+This explores options of rendering dynamic objects that transform on every frame.
+This is controlled through DynamicModel and DynamicRenderGroup offering two options:
+1) Transform on GPU:
+    - pass bunch of uniforms then calculate and form matrix in the vertex shader
+2) Transform on CPU:
+    - calculate matrix on the CPU then pass it to vertex shader
+
+Vertex shader flag transform_on_gpu controls which option is processed.
+Static objects can be directly rendered after dynamic object as cleanup is
+performed in unset_state(), but it adds updates of uniforms.
+Press SPACE to toggle between GPU and CPU transformations.
+
+Performance limitations:
+GPU - 720 barrel models at ~100fps
+    Vertex shader code is executed per vertex, models vertices have same
+    transformation matrix, but it is still calculated for each vertex, slow for large models
+
+CPU - 450 barrel models at 100fps
+    Matrix calculated only once per model, but slow in python.
 
 """
-
-import copy
-import math
 import random
-
 import pyglet.math
-
 import tools.lighting
 from tools.definitions import *
 from tools.camera import Camera3D
 from tools.graphics import *
 from tools.model import *
 from tools.skybox import Skybox
+from pyglet.graphics import ShaderGroup
 
 settings = {
     'default_mode': True,
-    'width': 1280,
-    'height': 720,
-    'fps': 60,
+    'width': 3440,
+    'height': 1440,
+    'fps': 100,
 }
 
 
@@ -53,20 +68,6 @@ class DynamicModel:
 
         self.vertex_list = get_vertex_list(self.model_data, self.program, self.batch, self.render_group)
 
-    # def get_vertex_list(self) -> IndexedVertexList:
-    #     return self.program.vertex_list_indexed(
-    #         len(self.model_data['position']) // 3,
-    #         GL_TRIANGLES,
-    #         self.model_data['indices'],
-    #         self.batch,
-    #         self.render_group,
-    #         position=('f', self.model_data['position']),
-    #         normals=('f', self.model_data['normals']),
-    #         tex_coords=('f', self.model_data['tex_coords']),
-    #         tangents=('f', self.model_data['tangents']),
-    #         bitangents=('f', self.model_data['bitangents'])
-    #     )
-
 
 class DynamicRenderGroup(Group):
     def __init__(
@@ -77,24 +78,28 @@ class DynamicRenderGroup(Group):
             parent: Group = None,
             transform_on_gpu=False
     ):
+        """
+        Dynamically transform model on every frame.
+        Model matrix can be calculated on the CPU or GPU (if transform_on_gpu=True).
+        TODO: UBO!
+        """
         super(DynamicRenderGroup, self).__init__(order, parent)
         self.model = model
         self.program = program
-        self.gpu_transform = transform_on_gpu
+        self.transform_on_gpu = transform_on_gpu
 
     def set_state(self) -> None:
         self.program['rendering_dynamic_object'] = True
-        if self.gpu_transform:
+        if self.transform_on_gpu:
             self.program['transform_on_gpu'] = True
             self.program['model_position'] = self.model.position
-            # self.program['model_scale'] = self.model.scale
-            self.program['model_rotation'] = Vec3(0, self.model.rotation, self.model.rotation/2)
+            self.program['model_rotation'] = Vec3(0, self.model.rotation, 0)
+            self.program['model_scale'] = self.model.scale
         else:
             model_matrix = get_model_matrix(
                 self.model.position, self.model.rotation, self.model.rotation_dir, self.model.scale, self.model.origin
             )
-            self.program['model'] = model_matrix
-        self.program.use()
+            self.program['model_precalc'] = model_matrix
 
     def unset_state(self) -> None:
         self.program['transform_on_gpu'] = False
@@ -146,43 +151,44 @@ class App(pyglet.window.Window):
             self.light, self.program, self.width, self.height
         )
 
+        self.shader_group = ShaderGroup(self.program)
         self.model_group = DiffuseNormalTextureGroup(
             pyglet.image.load("res/model/Barrel/barrel_BaseColor.png").get_texture(),
             pyglet.image.load("res/model/Barrel/barrel_Normal.png").get_texture(),
-            program=self.program
+            program=self.program, parent=self.shader_group
         )
 
-        self.terrain_group = DiffuseNormalTextureGroup(
-            pyglet.image.load("res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg").get_texture(),
-            pyglet.image.load("res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_nor_gl_2k.jpg").get_texture(),
-            self.program
-        )
+        # self.terrain_group = DiffuseNormalTextureGroup(
+        #     pyglet.image.load("res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg").get_texture(),
+        #     pyglet.image.load("res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_nor_gl_2k.jpg").get_texture(),
+        #     self.program
+        # )
 
-        self.terrain = get_vertex_list(
-            transform_model_data(
-                load_obj_model("res/model/terrain/mountain/terrain_01.obj"),
-                scale=0.6, position=(0, -2000, 0), rotation=(0, 0, 0), tex_scale=10
-            ), self.program, self.batch, self.terrain_group
-        )
+        # self.terrain = get_vertex_list(
+        #     transform_model_data(
+        #         load_obj_model("res/model/terrain/mountain/terrain_01.obj"),
+        #         scale=0.6, position=(0, -2000, 0), rotation=(0, 0, 0), tex_scale=10
+        #     ), self.program, self.batch, self.terrain_group
+        # )
 
         self.model_data = transform_model_data(
             load_obj_model('res/model/Barrel/Barrel_OBJ.obj'), scale=400
         )
         self.models = []
 
-        rows, columns, layers = 10, 10, 10
+        rows, columns, layers = 10, 10, 8
         spacing = 400
         for i in range(rows):
             for j in range(columns):
                 for k in range(layers):
-                    position = Vec3(spacing*i, spacing*j, spacing*k)
+                    position = Vec3(spacing * i, spacing * j, spacing * k)
                     self.models.append(
                         DynamicModel(
                             self.batch, self.program,
                             self.model_group, self.model_data,
                             position=position,
-                            rotation=random.randint(-100, 100)/100,
-                            transform_on_gpu=True
+                            rotation=random.randint(-100, 100) / 100,
+                            transform_on_gpu=True,
                         )
                     )
 
@@ -195,6 +201,7 @@ class App(pyglet.window.Window):
             colors=('Bn', self.model_data['colors'])
         )
 
+        self.transform_on_gpu = True
         self.render_shadow_batch = False
         self.draw_skybox = True
         self.wireframe = False
@@ -211,7 +218,8 @@ class App(pyglet.window.Window):
 
     def update_light_position(self):
         amplitude = 3000
-        self.light.position = self.original_position + Vec3(amplitude + math.sin(self.timer), amplitude * math.cos(self.timer), 0)
+        self.light.position = self.original_position + Vec3(amplitude + math.sin(self.timer),
+                                                            amplitude * math.cos(self.timer), 0)
         self.light.view_matrix = self.light.get_light_view_matrix()
 
     def on_draw(self):
@@ -253,7 +261,9 @@ class App(pyglet.window.Window):
             case pyglet.window.key.X:
                 self.render_shadow_batch = not self.render_shadow_batch
             case pyglet.window.key.SPACE:
-                self.run = not self.run
+                self.transform_on_gpu = not self.transform_on_gpu
+                for model in self.models:
+                    model.render_group.transform_on_gpu = self.transform_on_gpu
 
             # shader render settings
             case pyglet.window.key.M:
@@ -277,4 +287,4 @@ class App(pyglet.window.Window):
 
 
 if __name__ == '__main__':
-    start_app(App, settings)
+    app = start_app(App, settings)

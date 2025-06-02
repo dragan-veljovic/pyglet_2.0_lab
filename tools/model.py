@@ -8,6 +8,85 @@ from pyglet.gl import *
 from pyglet.math import Vec3, Mat4
 
 
+class DynamicModel:
+    def __init__(
+            self,
+            batch: Batch,
+            program: ShaderProgram,
+            texture_group: Group,
+            model_data: dict,
+            position=Vec3(0, 0, 0),
+            rotation: float = 0.0,
+            rotation_dir=Vec3(0, 1, 0),
+            scale=Vec3(1, 1, 1),
+            origin=Vec3(0, 0, 0),
+            transform_on_gpu=False
+    ):
+        self.batch = batch
+        self.program = program
+        self.texture_group = texture_group
+        self.model_data = model_data
+        self.position = position
+        self.rotation = rotation
+        self.rotation_dir = rotation_dir
+        self.scale = scale
+        self.origin = origin
+
+        self.render_group = DynamicRenderGroup(
+            self, self.program, parent=self.texture_group, transform_on_gpu=transform_on_gpu
+        )
+
+        self.vertex_list = get_vertex_list(self.model_data, self.program, self.batch, self.render_group)
+
+
+class DynamicRenderGroup(Group):
+    def __init__(
+            self,
+            model: DynamicModel,
+            program: ShaderProgram,
+            order=0,
+            parent: Group = None,
+            transform_on_gpu=False
+    ):
+        """
+        Dynamically transform model on every frame.
+        Model matrix can be calculated on the CPU or GPU (if transform_on_gpu=True).
+        TODO: UBO!
+        """
+        super(DynamicRenderGroup, self).__init__(order, parent)
+        self.model = model
+        self.program = program
+        self.transform_on_gpu = transform_on_gpu
+
+    def set_state(self) -> None:
+        self.program['rendering_dynamic_object'] = True
+        if self.transform_on_gpu:
+            self.program['transform_on_gpu'] = True
+            self.program['model_position'] = self.model.position
+            self.program['model_rotation'] = Vec3(0, self.model.rotation, 0)
+            self.program['model_scale'] = self.model.scale
+        else:
+            model_matrix = get_model_matrix(
+                self.model.position, self.model.rotation, self.model.rotation_dir, self.model.scale, self.model.origin
+            )
+            self.program['model_precalc'] = model_matrix
+
+    def unset_state(self) -> None:
+        self.program['transform_on_gpu'] = False
+        self.program['rendering_dynamic_object'] = False
+
+    def __eq__(self, other: Group):
+        """ Normally every dynamic object will have unique transformation,
+        But eq could be useful for grouping objects that move together,
+        ex. passengers inside a bus.
+        """
+        return False
+
+    def __hash__(self):
+        return hash((self.order, self.parent, self.program, self.model))
+
+
+
 class DiffuseNormalTextureGroup(Group):
     def __init__(
             self,
@@ -52,7 +131,8 @@ class DiffuseNormalTextureGroup(Group):
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-        self.program.use()
+        # use ShaderGroup instead
+        #self.program.use()
 
     def unset_state(self):
         if self.reset_normal_mapping_uniform:
@@ -60,7 +140,7 @@ class DiffuseNormalTextureGroup(Group):
             self.reset_normal_mapping_uniform = False
 
         glDisable(GL_BLEND)
-        self.program.stop()
+        #self.program.stop()
 
     def __hash__(self):
         return hash((self.diffuse.target, self.diffuse.id, self.normal_target, self.normal_id, self.order, self.parent,
@@ -315,11 +395,15 @@ def load_obj_model(filename):
         for _ in range(len(final_positions) // 3):
             final_tex_coords.extend([0.0, 0.0])
 
+    count = len(final_positions)//3
+
     return {
         'position': final_positions,
         'normals': final_normals,
         'tex_coords': final_tex_coords,
-        'indices': indices
+        'indices': indices,
+        'count': count,
+        'colors': (128, 128, 128, 255) * count
     }
 
 
