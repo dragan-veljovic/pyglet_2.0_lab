@@ -1,17 +1,21 @@
 #version 330 core
-in vec3 position;
-in vec2 tex_coords;
-in vec3 normals;
-in vec4 colors;
-in vec3 tangents;
-in vec3 bitangents;
-in vec4 instance_data;
+layout (location = 0) in vec3 position;
+layout (location = 1) in vec4 color;
+layout (location = 2) in vec2 tex_coord;
+layout (location = 3) in vec3 normal;
+layout (location = 4) in vec3 tangent;
+layout (location = 5) in vec3 bitangent;
+
+layout (location = 6) in vec4 instance_data_0;
+layout (location = 7) in vec4 instance_data_1;
+layout (location = 8) in vec4 instance_data_2;
+layout (location = 9) in vec4 instance_data_3;
 
 out vec3 frag_position;
-out vec2 frag_tex_coords;
-out vec3 frag_normals;
-out vec4 frag_colors;
-out vec4 frag_shadow_coords;
+out vec4 frag_color;
+out vec2 frag_tex_coord;
+out vec3 frag_normal;
+out vec4 frag_shadow_coord;
 out mat3 TBN;
 
 uniform WindowBlock {
@@ -116,14 +120,19 @@ mat4 get_model_matrix(
     }
 }
 
-mat4 get_instance_model_matrix(){
-    // Override this with your own custom extraction
+mat4 get_instance_model_matrix_gpu(){
+    // Example how to extract data from instance attribute and get matrix on the GPU
     return get_model_matrix(
-            vec3(instance_data.xy, position.z * 5.0), // extract transltation data
-            vec3(instance_data.z), // extract rotation data
-            vec3(instance_data.w), // extract scale data
+            vec3(instance_data_0.xy, position.z), // extract transltation data
+            vec3(0.0), // extract rotation data
+            vec3(10.0), // extract scale data
             vec3(0.0)  // default origin
     );
+}
+
+mat4 get_instance_model_matrix(){
+    // math is cheap, but reading this many attributes per vertex can be memory-bound
+    return mat4(instance_data_0, instance_data_1, instance_data_2, instance_data_3);
 }
 
 void main() {
@@ -131,7 +140,7 @@ void main() {
     // a large static mesh will still be multiplied by default mat3(1.0) wasting resources
     mat4 model;
     if (instance_rendering) {
-        model = get_instance_model_matrix();
+        model = get_instance_model_matrix_gpu();
     } else {
         if (rendering_dynamic_object) {
             if (transform_on_gpu) {
@@ -149,16 +158,16 @@ void main() {
     // mat3 normal_adjustment = rendering_dynamic_object ? mat3(transpose(inverse(model))) : mat3(1.0);
 
     // calculating TBN (should be done only if normal mapping is used)
-    vec3 T = normalize(normal_adjustment * tangents);
-    vec3 B = normalize(normal_adjustment * bitangents);
-    vec3 N = normalize(normal_adjustment * normals);
+    vec3 T = normalize(normal_adjustment * tangent);
+    vec3 B = normalize(normal_adjustment * bitangent);
+    vec3 N = normalize(normal_adjustment * normal);
 
-    // output attributes
+     // output attributes
     TBN = mat3(T, B, N);
-    frag_tex_coords = tex_coords;
+    frag_tex_coord = tex_coord;
     frag_position = (model * vec4(position, 1.0)).xyz;
-    frag_colors = colors;
-    frag_normals = N;
+    frag_color = color;
+    frag_normal = N;
 
     // Pass light-space coordinates to fragment shader
     // shadows seems not to work for moving object
@@ -166,7 +175,7 @@ void main() {
     // for this look into
     //"Shader Switching: When switching between shader programs,
      //uniform blocks can persist if they're bound to the same binding point"
-    frag_shadow_coords = light_proj * light_view * model * vec4(position, 1.0);
+    frag_shadow_coord = light_proj * light_view * model * vec4(position, 1.0);
 
     gl_Position = window.projection * window.view * model * vec4(position, 1.0);
 }

@@ -10,194 +10,14 @@ from pyglet.graphics.shader import ShaderProgram, Shader
 from pyglet.graphics import Group
 from collections.abc import Callable
 from typing import Optional
+import warnings
 
-# class InstanceRenderer:
-#     def __init__(
-#             self,
-#             program: ShaderProgram,
-#             position: np.array,
-#             colors: np.array,
-#             indices: np.array,
-#             instance_data: np.array,
-#             num_instances: int,
-#     ):
-#         self.program = program
-#         self.position = position
-#         self.colors = colors
-#         self.indices = indices
-#         self.num_instances = num_instances
-#         self.instance_data = instance_data
-#
-#         self.num_indices = len(self.indices)
-#         self.vao = None
-#         self.buffers = []
-#         self.counter = 0.0
-#
-#         #self._create_vao()
-#         self._create_buffers()
-#
-#     def _create_vao(self):
-#         self.program.use()
-#
-#         # Create and bind VAO
-#         self.vao = GLuint()
-#         glGenVertexArrays(1, ctypes.byref(self.vao))
-#         glBindVertexArray(self.vao)
-#
-#     def _create_buffers(self):
-#         """
-#         TODO: Hardcoded, make it programmable
-#         :return:
-#         """
-#         # Get attribute locations
-#         position_location = glGetAttribLocation(self.program.id, b'position')
-#         color_location = glGetAttribLocation(self.program.id, b'color')
-#         data_location = glGetAttribLocation(self.program.id, b'instance_data')
-#
-#         # Create and bind VAO
-#         vao = GLuint()
-#         glGenVertexArrays(1, vao)
-#         glBindVertexArray(vao)
-#
-#         # Create and populate VBO for positions
-#         vbo = GLuint()
-#         glGenBuffers(1, vbo)
-#         glBindBuffer(GL_ARRAY_BUFFER, vbo)
-#         glBufferData(
-#             GL_ARRAY_BUFFER,
-#             self.position.nbytes,
-#             self.position.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-#             GL_STATIC_DRAW
-#         )
-#
-#         # create and populate VBO for colors
-#         cbo = GLuint()
-#         glGenBuffers(1, cbo)
-#         glBindBuffer(GL_ARRAY_BUFFER, cbo)
-#         glBufferData(
-#             GL_ARRAY_BUFFER,
-#             self.colors.nbytes,
-#             self.colors.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-#             GL_STATIC_DRAW
-#         )
-#
-#         # Create and populate VBO for instance data
-#         self.instance_vbo = GLuint()
-#         glGenBuffers(1, ctypes.byref(self.instance_vbo))
-#         glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-#         glBufferData(
-#             GL_ARRAY_BUFFER,
-#             self.instance_data.nbytes,
-#             self.instance_data.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-#             GL_STATIC_DRAW
-#         )
-#
-#         # Create and populate EBO (Element Buffer Object)
-#         ebo = GLuint()
-#         glGenBuffers(1, ctypes.byref(ebo))
-#         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
-#         glBufferData(
-#             GL_ELEMENT_ARRAY_BUFFER,
-#             self.indices.nbytes,
-#             self.indices.ctypes.data_as(ctypes.POINTER(ctypes.c_uint)),
-#             GL_STATIC_DRAW
-#         )
-#
-#         # Configure vertex attributes
-#         # Position attribute
-#         glBindBuffer(GL_ARRAY_BUFFER, vbo)
-#         glVertexAttribPointer(position_location, 3, GL_FLOAT, GL_FALSE, 3 * 4, 0)
-#         glEnableVertexAttribArray(position_location)
-#
-#         # Color attribute
-#         glBindBuffer(GL_ARRAY_BUFFER, cbo)
-#         glVertexAttribPointer(color_location, 3, GL_FLOAT, GL_TRUE, 3 * 4, 0)
-#         glEnableVertexAttribArray(color_location)
-#
-#         # Instance transformation attribute
-#         glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-#         glVertexAttribPointer(data_location, 4, GL_FLOAT, GL_FALSE, 4 * 4, 0)
-#         glEnableVertexAttribArray(data_location)
-#         glVertexAttribDivisor(data_location, 1)  # This makes it per-instance
-#
-#     def update(self):
-#         self.counter += 1
-#         time_value = self.counter * 0.01
-#
-#         index = 0
-#         for y in range(6):
-#             for x in range(6):
-#                 # Position (in a grid pattern)
-#                 self.instance_data[index, 0] = (x - 10) * 0.1  # x position
-#                 self.instance_data[index, 1] = (y - 10) * 0.1  # y position
-#
-#                 # Scale (varies based on position)
-#                 distance = math.sqrt((x - 5) ** 2 + (y - 5) ** 2) / 7.0
-#                 self.instance_data[index, 2] = 0.05 + 0.03 * math.sin(distance * 3 + time_value)
-#
-#                 # Rotation (animated over time, different for each instance)
-#                 self.instance_data[index, 3] = time_value + distance * 2
-#
-#                 index += 1
-#
-#         # Update the instance VBO with new data
-#         glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-#         glBufferSubData(GL_ARRAY_BUFFER, 0, self.instance_data.nbytes,
-#                         self.instance_data.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
-#
-#
-#     @staticmethod
-#     def create_vbo(
-#             program: ShaderProgram,
-#             attribute: str,
-#             data: np.array,
-#             size=3,
-#             buffer_type=GL_ARRAY_BUFFER,
-#             data_type=GL_FLOAT,
-#             normalize=GL_FALSE,
-#             instance_data=False,
-#     ) -> GLuint:
-#         # get attribute location in the shader
-#         attr = attribute.encode('utf-8')
-#         location = glGetAttribLocation(program.id, attr)
-#
-#         # create, bind and populate VBO
-#         vbo = GLuint()
-#         glGenBuffers(1, vbo)
-#         glBindBuffer(buffer_type, vbo)
-#         glBufferData(
-#             buffer_type,
-#             data.nbytes,
-#             data.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-#             GL_STATIC_DRAW
-#         )
-#
-#         # configure attributes
-#         if data_type == GL_ARRAY_BUFFER:
-#             glVertexAttribPointer(location, size, data_type, normalize, size * 4, 0)
-#             glEnableVertexAttribArray(location)
-#
-#             # divide data per instance, for instanced rendering
-#             if instance_data:
-#                 glVertexAttribDivisor(location, 1)
-#
-#         return vbo
-#
-#     def delete(self):
-#         glDeleteVertexArrays(1, ctypes.byref(self.vao))
-#         for buffer in self.buffers:
-#             glDeleteBuffers(1, ctypes.byref(buffer))
-#
-#     def draw(self):
-#         self.program.use()
-#         glBindVertexArray(self.vao)
-#         glDrawElementsInstanced(
-#             GL_TRIANGLES,
-#             self.num_indices,
-#             GL_UNSIGNED_INT,
-#             None,
-#             self.num_instances
-#         )
+
+def custom_warning_format(message, category, filename, lineno, line=None):
+    return f"⚠️ {category.__name__}: {message}\n"
+
+warnings.formatwarning = custom_warning_format
+
 
 vertex_source = """
 #version 150 core
@@ -255,26 +75,24 @@ class InstanceRendering:
     Implement data extraction and transformation in your shader.
     Execute your custom 'update_func' to update shader instance data with 'update()',
     before calling 'draw()' in your Window.on_draw().
+
+    Notes:
+    Designed to work with the return of load_obj_model(). You can pass dictionary with
+    model data, including "indices" as glDrawElementsInstanced is used for instance rendering.
+    Keys in the dictionary should match attributes in the shader program.
     """
     def __init__(
             self,
-            position: NDArray[np.float32],
-            indices: NDArray[np.uint32],
+            model_data: dict,
             instance_data: NDArray[np.float32],
             num_instances: int,
-            color: Optional[NDArray[np.float32]] = None,
-            tex_coord: Optional[NDArray[np.float32]] = None,
-            normal: Optional[NDArray[np.float32]] = None,
             program: Optional[ShaderProgram] = None,
             group: Optional[Group] = None,
             update_func: Optional[Callable] = None
     ):
+        self.model_data = model_data
         self.instance_data = instance_data
         self.num_instances = num_instances
-        self.num_indices = len(indices)
-        self.color = color if color is not None else np.array((1.0, 1.0, 1.0, 1.0) * (len(position) // 3), dtype=np.float32)
-        self.tex_coord = tex_coord
-        self.normal = normal
         if program:
             self.program = program
         else:
@@ -283,70 +101,28 @@ class InstanceRendering:
                 Shader(fragment_source, 'fragment')
             )
 
+        self.attributes = [attr for attr in self.model_data.keys() if attr != 'indices']
+
         self.group = group if group else Group()
         self.func = update_func
+        self.indices = np.array(self.model_data['indices'], dtype=np.uint32)
+        self.num_indices = len(self.indices)
 
         self.program.use()
-        position_location = glGetAttribLocation(self.program.id, b'position')
-        color_location = glGetAttribLocation(self.program.id, b'colors')
-        data_location = glGetAttribLocation(self.program.id, b'instance_data')
-        tex_location = glGetAttribLocation(self.program.id, b'tex_coords')
-        nor_location = glGetAttribLocation(self.program.id, b'normals')
+
+        self.locations = {}
+        for attr in self.attributes[:]:
+            location = glGetAttribLocation(self.program.id, attr.encode('utf-8'))
+            if location != -1:
+                self.locations[attr] = location
+            else:
+                warnings.warn(f"Vertex attribute '{attr}' is not found in the shader program and will not be used!")
+                self.attributes.remove(attr)
 
         # Create and bind VAO
         self.vao = GLuint()
         glGenVertexArrays(1, ctypes.byref(self.vao))
         glBindVertexArray(self.vao)
-
-        # Create and populate VBO for positions
-        self.pos_vbo = GLuint()
-        glGenBuffers(1, ctypes.byref(self.pos_vbo))
-        glBindBuffer(GL_ARRAY_BUFFER, self.pos_vbo)
-        glBufferData(
-            GL_ARRAY_BUFFER,
-            position.nbytes,
-            position.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-            GL_STATIC_DRAW
-        )
-
-        # Configure position attribute
-        glBindBuffer(GL_ARRAY_BUFFER, self.pos_vbo)
-        glVertexAttribPointer(position_location, 3, GL_FLOAT, GL_FALSE, 3 * 4, 0)
-        glEnableVertexAttribArray(position_location)
-
-        # Create and populate VBO for colors
-        self.color_vbo = GLuint()
-        glGenBuffers(1, ctypes.byref(self.color_vbo))
-        glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
-        glBufferData(
-            GL_ARRAY_BUFFER,
-            self.color.nbytes,
-            self.color.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-            GL_STATIC_DRAW
-        )
-
-        # Configure color attribute
-        glBindBuffer(GL_ARRAY_BUFFER, self.color_vbo)
-        glVertexAttribPointer(color_location, 3, GL_FLOAT, GL_FALSE, 3 * 4, 0)
-        glEnableVertexAttribArray(color_location)
-
-        # Create and populate VBO for instance data
-        self.instance_vbo = GLuint()
-        glGenBuffers(1, ctypes.byref(self.instance_vbo))
-        glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-        glBufferData(
-            GL_ARRAY_BUFFER,
-            self.instance_data.nbytes,
-            self.instance_data.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-            GL_STATIC_DRAW
-        )
-
-        # Instance transformation attribute
-        glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-        glVertexAttribPointer(data_location, 4, GL_FLOAT, GL_FALSE, 4 * 4, 0)
-        glEnableVertexAttribArray(data_location)
-        # This tells the GPU to read a new value of instance_data once per instance, not per vertex.
-        glVertexAttribDivisor(data_location, 1)
 
         # Create and populate EBO (Element Buffer Object)
         self.ebo = GLuint()
@@ -354,62 +130,88 @@ class InstanceRendering:
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
         glBufferData(
             GL_ELEMENT_ARRAY_BUFFER,
-            indices.nbytes,
-            indices.ctypes.data_as(ctypes.POINTER(ctypes.c_uint)),
+            self.indices.nbytes,
+            self.indices.ctypes.data_as(ctypes.POINTER(ctypes.c_uint)),
             GL_STATIC_DRAW
         )
 
-        if tex_coord is not None and program is not None:
-            # Create and populate VBO for texture coordinates
-            self.tex_vbo = GLuint()
-            glGenBuffers(1, ctypes.byref(self.tex_vbo))
-            glBindBuffer(GL_ARRAY_BUFFER, self.tex_vbo)
+        # Create and populate VBO for instance data
+        # User must rename per instance data attribute as "model_data" in the shader
+        # self.instance_data_loc = glGetAttribLocation(self.program.id, b'instance_data')
+        # if self.instance_data_loc == -1:
+        #     raise AttributeError("Expected 'instance_data' attribute is not found in the shader program.")
+
+        self.instance_vbo = GLuint()
+        glGenBuffers(1, ctypes.byref(self.instance_vbo))
+        glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
+        glBufferData(
+            GL_ARRAY_BUFFER,
+            self.instance_data.nbytes,
+            self.instance_data.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+            GL_DYNAMIC_DRAW
+        )
+
+        vec4_size = 4 * 4  # 16 bytes
+        stride = 4 * 4 * 4  # 64 bytes for 4x4 matrix
+        start_loc = glGetAttribLocation(self.program.id, b'instance_data_0')
+
+        for i in range(4):
+            loc = start_loc + i
+            # Instance data configuration
+            glVertexAttribPointer(
+                loc, 4, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(i * vec4_size)
+            )
+            glEnableVertexAttribArray(loc)
+            # This tells the GPU to read a new value of instance_data once per instance, not per vertex.
+            glVertexAttribDivisor(loc, 1)
+
+        # create, populate and configure VBO for vertex attributes
+        self.vbos = []
+        for attr in self.attributes:
+            # prepare data
+            vbo = GLuint()
+            location = self.locations[attr]
+            data = np.array(self.model_data[attr], dtype=np.float32)
+            size = 2 if attr == 'tex_coord' else 3  # consider passing ('type', data) as for pyglet vlists
+            # generate buffer
+            glGenBuffers(1, ctypes.byref(vbo))
+            glBindBuffer(GL_ARRAY_BUFFER, vbo)
+            # populate buffer data
             glBufferData(
                 GL_ARRAY_BUFFER,
-                tex_coord.nbytes,
-                tex_coord.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                data.nbytes,
+                data.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
                 GL_STATIC_DRAW
             )
-
-            # Configure texture coordinates attribute
-            glBindBuffer(GL_ARRAY_BUFFER, self.tex_vbo)
-            glVertexAttribPointer(tex_location, 2, GL_FLOAT, GL_FALSE, 2 * 4, 0)
-            glEnableVertexAttribArray(tex_location)
-
-        if normal is not None and program is not None:
-            # Create and populate VBO for normals
-            self.nor_vbo = GLuint()
-            glGenBuffers(1, ctypes.byref(self.nor_vbo))
-            glBindBuffer(GL_ARRAY_BUFFER, self.nor_vbo)
-            glBufferData(
-                GL_ARRAY_BUFFER,
-                self.normal.nbytes,
-                self.normal.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-                GL_STATIC_DRAW
-            )
-
-            # Configure normal attributes
-            glBindBuffer(GL_ARRAY_BUFFER, self.nor_vbo)
-            glVertexAttribPointer(nor_location, 3, GL_FLOAT, GL_FALSE, 3 * 4, 0)
-            glEnableVertexAttribArray(nor_location)
+            # configure buffer data
+            glVertexAttribPointer(location, size, GL_FLOAT, GL_FALSE, size*4, 0)
+            glEnableVertexAttribArray(location)
+            self.vbos.append(vbo)
 
     def draw(self):
         """Call in your Window.on_draw() to draw instances."""
         self.program.use()
-        self.group.set_state()
+        self.group.set_state_recursive()
+
         glBindVertexArray(self.vao)
-        glDrawElementsInstanced(GL_TRIANGLES, self.num_indices, GL_UNSIGNED_INT, None, self.num_instances)
-        self.group.unset_state()
+        glDrawElementsInstanced(
+            GL_TRIANGLES, self.num_indices, GL_UNSIGNED_INT, None, self.num_instances
+        )
+
+        self.group.unset_state_recursive()
         self.program.stop()
 
     def update(self):
         """
-        Updates instance_data on the CPU, by calling your custom function, then updates shader attribute.
+        Updates instance_data on the CPU by calling your custom function, then updates shader attribute.
         Call this before InstanceRendering.draw() in your Window.on_draw() to animate instances.
         """
         if self.func:
             self.func()
         glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
+        # Orphan the buffer (discard old data to avoid GPU stalls)
+        glBufferData(GL_ARRAY_BUFFER, self.instance_data.nbytes, None, GL_DYNAMIC_DRAW)
+        # Upload the new instance data
         glBufferSubData(
             GL_ARRAY_BUFFER,
             0,
@@ -420,8 +222,7 @@ class InstanceRendering:
     def delete(self):
         """Call when done using this object within the same running context."""
         glDeleteVertexArrays(1, ctypes.byref(self.vao))
-        glDeleteBuffers(1, ctypes.byref(self.pos_vbo))
-        glDeleteBuffers(1, ctypes.byref(self.color_vbo))
         glDeleteBuffers(1, ctypes.byref(self.ebo))
         glDeleteBuffers(1, ctypes.byref(self.instance_vbo))
-
+        for buffer in self.vbos:
+            glDeleteBuffers(1, ctypes.byref(buffer))

@@ -1,14 +1,14 @@
 #version 330 core
 // input variables
 in vec3 frag_position;
-in vec2 frag_tex_coords;
-in vec3 frag_normals;
-in vec4 frag_colors;
-in vec4 frag_shadow_coords;
+in vec4 frag_color;
+in vec2 frag_tex_coord;
+in vec3 frag_normal;
+in vec4 frag_shadow_coord;
 in mat3 TBN;
 
 // output variables
-out vec4 final_colors;
+out vec4 final_color;
 
 // texture uniforms
 uniform sampler2D diffuse_texture;
@@ -24,7 +24,7 @@ uniform vec3 light_color = vec3(1.0);
 uniform float ambient_strength = 0.25;
 uniform float diffuse_strength = 1.0;
 uniform float specular_strength = 1.0;
-uniform float shininess = 128.0;
+uniform float shininess = 128;
 
 // rendering flags
 uniform bool shadow_mapping = true;
@@ -38,10 +38,10 @@ uniform bool fade = true;
 
 // other uniforms
 uniform float z_far = 5000.0;
+uniform float fade_length = 1000.0;
 
 
 float get_fade_factor(){
-    float fade_length = 750;
     float fade_start = z_far - fade_length;
     float fade_end = z_far;
     float distance = length(frag_position - view_position);
@@ -51,11 +51,11 @@ float get_fade_factor(){
 
 float get_shadow_factor() {
     // Perform perspective divide
-    vec3 proj_coords = frag_shadow_coords.xyz / frag_shadow_coords.w;
+    vec3 proj_coord = frag_shadow_coord.xyz / frag_shadow_coord.w;
     int pcf_samples = 9;
     float shadow_bias = 0.005;
     // Transform to [0, 1] texture space
-    proj_coords = proj_coords * 0.5 + 0.5;
+    proj_coord = proj_coord * 0.5 + 0.5;
 
     // Apply Percentage Closer Filtering (PCF)
     if (soft_shadows) {
@@ -65,8 +65,8 @@ float get_shadow_factor() {
         for (int x = -1; x <= 1; ++x) {
             for (int y = -1; y <= 1; ++y) {
                 vec2 offset = vec2(x, y) * sample_offset;
-                float depth = texture(shadow_map, proj_coords.xy + offset).r;
-                shadow += (proj_coords.z > depth + shadow_bias) ? 0.5 : 1.0;  // Bias to reduce artifacts
+                float depth = texture(shadow_map, proj_coord.xy + offset).r;
+                shadow += (proj_coord.z > depth + shadow_bias) ? 0.5 : 1.0;  // Bias to reduce artifacts
             }
         }
         // Average the result
@@ -76,9 +76,9 @@ float get_shadow_factor() {
     // Regular hard shadows
     } else {
          // Read the depth from the shadow map
-        float closest_depth = texture(shadow_map, proj_coords.xy).r;
+        float closest_depth = texture(shadow_map, proj_coord.xy).r;
         // Current fragment depth in light space
-        float current_depth = proj_coords.z;
+        float current_depth = proj_coord.z;
         // Check if the fragment is in shadow
         return (current_depth > closest_depth + shadow_bias) ? 0.5 : 1.0; // Bias to reduce artifacts
     }
@@ -86,7 +86,7 @@ float get_shadow_factor() {
 
 vec3 get_TBN_transformed_normals(){
     // sample normal map to get pixel normal values
-    vec3 normal = texture(normal_map, frag_tex_coords).rgb;
+    vec3 normal = texture(normal_map, frag_tex_coord).rgb;
     // obtain normal from normal map in range [0, 1]
     normal = normal * 2.0 - 1.0;
     // transform normals from tangetn space
@@ -127,7 +127,7 @@ vec3 get_phong_lighting(float shadow_factor, vec3 normal){
 
 
 vec3 get_diffuse_texture(){
-    return texture(diffuse_texture, frag_tex_coords).rgb;
+    return texture(diffuse_texture, frag_tex_coord).rgb;
 }
 
 
@@ -135,14 +135,14 @@ void main() {
     // shadow mapping
     float shadow_factor = shadow_mapping ? get_shadow_factor() : 1.0;
     // Normal mapping
-    vec3 normal = normal_mapping ? get_TBN_transformed_normals() : normalize(frag_normals);
+    vec3 normal = normal_mapping ? get_TBN_transformed_normals() : normalize(frag_normal);
     // Phong lighting
     vec3 lighting = lighting ? get_phong_lighting(shadow_factor, normal) : vec3(1.0) * shadow_factor;
     // Texturing
-    vec3 texture_diff = texturing ? get_diffuse_texture() : frag_colors.rgb;
+    vec3 texture_diff = texturing ? get_diffuse_texture() : frag_color.rgb;
     // Fade effect
     float fade_factor = fade ? get_fade_factor() : 1.0;
 
     // Combine lighting and shadow factors
-    final_colors = vec4(texture_diff * lighting, frag_colors.a * fade_factor);
+    final_color = vec4(texture_diff * lighting, frag_color.a * fade_factor);
 }
