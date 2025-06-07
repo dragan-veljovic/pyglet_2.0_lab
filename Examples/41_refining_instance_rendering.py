@@ -1,38 +1,24 @@
-import pyglet
-
 """
 Example showing current 3 possible rendering modes:
-STATIC - objects that do not move, optimized by pyglet internal batching. 
+STATIC - objects that do not move, optimized by pyglet internal batching.
     Theoretically, amount limited by VRAM or CPU calls if many different Groups.
-DYNAMIC - objects updated on every frame, with full flexibility. 
-This can be done on GPU by passing parameters to shader, or on CPU by passing entire model matrix.
-    Limited by CPU due to each DynamicRenderGroup being unique, or
-    by GPU as get_model_matrix is called per vertex. 
-INSTANCE - highly optimized way of drawing many instances of same 3D mesh.
-    Limited by the GPU get_model_matrix(). Work in progress.  
 
-TODO:
-  - avoid hard-coded instance_data location and attribute names
+DYNAMIC - objects updated on every frame, with full flexibility.
+    This can be done on GPU by passing parameters to shader, or on CPU by passing entire model matrix.
+    Limited by CPU due to each DynamicRenderGroup being unique, or
+    by GPU as get_model_matrix is called per vertex.
+
+INSTANCE - highly optimized way of drawing many instances of same 3D mesh.
+    Limited by the GPU get_model_matrix().
 """
 
 import tools.camera
 from tools.definitions import *
 from tools.instancing import InstanceRendering
-import numpy as np
-import math
-from pyglet.gl import *
-from tools.model import load_obj_model, DynamicModel, DynamicRenderGroup
 from tools.skybox import Skybox
-from pyglet.math import Vec3
 from tools.lighting import DirectionalLight
 from tools.model import *
 from pyglet.graphics import Group
-from pathlib import Path
-import logging
-import hashlib
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 class MyTextureGroup(Group):
@@ -89,71 +75,6 @@ class InstanceGroup(Group):
                 self.program == other.program and
                 self.order == other.order and
                 self.parent == other.parent)
-
-
-def get_cached_obj_data(
-        path: str,
-        save_dir="res/model/cached/",
-        scale=1.0, position=(0, 0, 0), rotation=(0, 0, 0), tex_scale=1.0,
-        force_reload=False,
-        old_version_cleanup=True
-) -> dict:
-    """
-    Fast load of a 3D model's transformed data from a cache file if available,
-    otherwise process, cache, and return the transformed model data.
-    Cached filename includes original model and a hash value based on passed parameters.
-    Older versions of the same model are removed by default.
-    """
-
-    def save_model_data(save_path: Path, data: dict):
-        with save_path.open('wb') as f:
-            pickle.dump(data, f)
-
-    def load_model_data(load_path: Path):
-        with load_path.open('rb') as f:
-            return pickle.load(f)
-
-    def cleanup(model_base_name: str, keep_filename: str, save_dir="res/model/cached/"):
-        """Remove all pickled files for a given model, except the one in use."""
-        cache_path = Path(save_dir)
-        for file in cache_path.glob(f"{model_base_name}_*.pkl"):
-            if file.name != keep_filename:
-                file.unlink()
-                logger.info(f" Removed old cache file: {file}")
-
-    # get filename
-    filename = Path(path).name
-    if filename.lower().endswith('.obj'):
-        name = filename.rsplit('.', 1)[0]
-    else:
-        raise NameError("Expected '.obj' file format.")
-
-    # generate has based on transformation parameters
-    param_str = f"{scale}_{position}_{rotation}_{tex_scale}"
-    param_hash = hashlib.md5(param_str.encode()).hexdigest()[:8]  # short hash
-    hashed_name = f"{name}_{param_hash}.pkl"
-
-    # generating cached file path
-    save_dir_path = Path(save_dir)
-    cached_file_path = save_dir_path / hashed_name
-
-    # load and return cached file if exists, otherwise create cached file
-    if force_reload or not cached_file_path.exists():
-        save_dir_path.mkdir(parents=True, exist_ok=True)
-        logger.info(f" Generating and caching model to: {cached_file_path}")
-        data = transform_model_data(
-            load_obj_model(path),
-            scale=scale, position=position, rotation=rotation, tex_scale=tex_scale
-        )
-        save_model_data(cached_file_path, data)
-
-        # Clean cached old versions of this model
-        if old_version_cleanup:
-            cleanup(name, hashed_name, save_dir)
-        return data
-
-    logger.info(f" Loading cached model: {cached_file_path}")
-    return load_model_data(cached_file_path)
 
 
 class MyApp(pyglet.window.Window):
@@ -231,8 +152,7 @@ class MyApp(pyglet.window.Window):
 
         self.terrain_data = get_cached_obj_data(
             'res/model/terrain/mountain/terrain_01.obj',
-            scale=0.6, position=(0, -2000, 0), rotation=(0, 0, 0), tex_scale=10,
-            force_reload=False
+            scale=0.75, position=(0, -2000, 0), rotation=(0, 0, 0), tex_scale=15,
         )
 
         self.terrain = get_vertex_list(
@@ -255,14 +175,18 @@ class MyApp(pyglet.window.Window):
 
         N = 100  # number of instances is square of this
         self.num_instances = N ** 2
-        self.instance_data = np.array(
-            (
-                10, 0, 0, 0,
-                0, 10, 0, 0,
-                0, 0, 10, 0,
-                0, 0, 0, 1,
-            ) * self.num_instances, dtype=np.float32
-        ).reshape(self.num_instances, 16)
+
+        # mat4 will be uploaded to shader as 4xvec4
+        self.instance_data = np.array((
+                                          10, 0, 0, 0,
+                                          0, 10, 0, 0,
+                                          0, 0, 10, 0,
+                                          0, 0, 0, 1,
+                                      ) * self.num_instances, dtype=np.float32
+                                      ).reshape(self.num_instances, 16)
+
+        # # vec4 data
+        # self.instance_data = np.array((0, 0, 10, 0) * self.num_instances, dtype=np.float32).reshape(self.num_instances, 4)
 
         self.instance_group = InstanceGroup(
             self.program,
@@ -270,9 +194,10 @@ class MyApp(pyglet.window.Window):
         )
 
         self.instances = InstanceRendering(
-            model_data=self.model_data,
+            vertex_data=self.model_data,
             instance_data=self.instance_data,
             num_instances=self.num_instances,
+            instance_attributes=('instance_data_0', 'instance_data_1', 'instance_data_2', 'instance_data_3'),
             program=self.program,
             group=self.instance_group,
             update_func=self.update_func_for_mat4
@@ -312,8 +237,9 @@ class MyApp(pyglet.window.Window):
         # translation
         self.instance_data[:, 0] = x_flat * 75 + 75 * np.sin(distance * time * 0.1)  # x position
         self.instance_data[:, 1] = y_flat * 75 + 75 * np.cos(distance * time * 0.1)  # y position
+        self.instance_data[::3, 2] = 100 * np.cos(time)
         # rotation
-        self.instance_data[:, 4:6] += 0.1
+        self.instance_data[:, 4] += 0.01 * np.sin(time * distance)
         # scale
         self.instance_data[:, 8:10] = 10 + 3 * np.sin(time)
 

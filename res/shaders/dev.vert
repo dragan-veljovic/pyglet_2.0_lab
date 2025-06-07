@@ -123,9 +123,9 @@ mat4 get_model_matrix(
 mat4 get_instance_model_matrix_gpu(){
     // Example how to extract data from instance attribute and get matrix on the GPU
     return get_model_matrix(
-            vec3(instance_data_0.xy, position.z), // extract transltation data
-            vec3(0.0), // extract rotation data
-            vec3(10.0), // extract scale data
+            vec3(instance_data_0.xyz), // extract transltation data
+            vec3(instance_data_1.xyz), // extract rotation data
+            vec3(instance_data_2.xyz), // extract scale data
             vec3(0.0)  // default origin
     );
 }

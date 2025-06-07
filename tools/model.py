@@ -1,5 +1,8 @@
+import hashlib
 import math
 import pickle
+from pathlib import Path
+
 import pyglet
 from pyglet.graphics.shader import ShaderProgram
 from pyglet.graphics import Group, Batch
@@ -7,6 +10,10 @@ from pyglet.graphics.vertexdomain import IndexedVertexList
 from pyglet.image import Texture
 from pyglet.gl import *
 from pyglet.math import Vec3, Mat4
+
+import logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(name)s: %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class DynamicModel:
@@ -725,3 +732,66 @@ def get_vertex_list(
     )
 
 
+def get_cached_obj_data(
+        path: str,
+        save_dir="res/model/cached/",
+        scale=1.0, position=(0, 0, 0), rotation=(0, 0, 0), tex_scale=1.0,
+        force_reload=False,
+        old_version_cleanup=True
+) -> dict:
+    """
+    Fast load of a 3D model's transformed data from a cache file if available,
+    otherwise process, cache, and return the transformed model data.
+    Cached filename includes original model and a hash value based on passed parameters.
+    Older versions of the same model are removed by default.
+    """
+
+    def save_model_data(save_path: Path, data: dict):
+        with save_path.open('wb') as f:
+            pickle.dump(data, f)
+
+    def load_model_data(load_path: Path):
+        with load_path.open('rb') as f:
+            return pickle.load(f)
+
+    def cleanup(model_base_name: str, keep_filename: str, save_dir="res/model/cached/"):
+        """Remove all pickled files for a given model, except the one in use."""
+        cache_path = Path(save_dir)
+        for file in cache_path.glob(f"{model_base_name}_*.pkl"):
+            if file.name != keep_filename:
+                file.unlink()
+                logger.info(f" Removed old cache file: {file}")
+
+    # get filename
+    filename = Path(path).name
+    if filename.lower().endswith('.obj'):
+        name = filename.rsplit('.', 1)[0]
+    else:
+        raise NameError("Expected '.obj' file format.")
+
+    # generate has based on transformation parameters
+    param_str = f"{scale}_{position}_{rotation}_{tex_scale}"
+    param_hash = hashlib.md5(param_str.encode()).hexdigest()[:8]  # short hash
+    hashed_name = f"{name}_{param_hash}.pkl"
+
+    # generating cached file path
+    save_dir_path = Path(save_dir)
+    cached_file_path = save_dir_path / hashed_name
+
+    # load and return cached file if exists, otherwise create cached file
+    if force_reload or not cached_file_path.exists():
+        save_dir_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f" Generating and caching model to: {cached_file_path}")
+        data = transform_model_data(
+            load_obj_model(path),
+            scale=scale, position=position, rotation=rotation, tex_scale=tex_scale
+        )
+        save_model_data(cached_file_path, data)
+
+        # Clean cached old versions of this model
+        if old_version_cleanup:
+            cleanup(name, hashed_name, save_dir)
+        return data
+
+    logger.info(f" Loading cached model: {cached_file_path}")
+    return load_model_data(cached_file_path)

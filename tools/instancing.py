@@ -1,149 +1,96 @@
-import typing
-
-import pyglet
 from pyglet.gl import *
 import numpy as np
 from numpy.typing import NDArray
 import ctypes
-import math
 from pyglet.graphics.shader import ShaderProgram, Shader
 from pyglet.graphics import Group
-from collections.abc import Callable
-from typing import Optional
-import warnings
+from typing import Optional, Sequence, Callable
+import logging
 
-
-def custom_warning_format(message, category, filename, lineno, line=None):
-    return f"⚠️ {category.__name__}: {message}\n"
-
-warnings.formatwarning = custom_warning_format
-
-
-vertex_source = """
-#version 150 core
-
-in vec3 position;
-in vec4 colors;
-in vec4 instance_data;  // pos_x, pos_y, scale, rotation
-
-out vec4 fragColor;
-
-uniform WindowBlock {
-    mat4 projection;
-    mat4 view;
-} window;
-
-void main() {
-    // Extract transformation data
-    vec3 offset = vec3(instance_data.xy, position.z*5);
-    float angle = instance_data.z;
-    float scale = instance_data.w;
-
-    // Apply rotation
-    float cos_rot = cos(angle);
-    float sin_rot = sin(angle);
-    mat3 rotMatrix = mat3(cos_rot, -sin_rot, 0, sin_rot, cos_rot, 0, 0, 0, 0);
-
-    // Transform the vertex: scale -> rotate -> translate
-    vec3 scaledPos = position.xyz * scale;
-    vec3 rotatedPos = rotMatrix * scaledPos;
-    vec3 finalPos = rotatedPos + offset;
-
-    gl_Position = window.projection * window.view * vec4(finalPos, 1.0);
-    fragColor = colors;
-}
-"""
-
-fragment_source = """
-#version 150 core
-in vec4 fragColor;
-in vec2 fragCoord;
-
-out vec4 outColor;
-
-void main() {
-    outColor = vec4(fragColor);
-}
-"""
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(name)s: %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class InstanceRendering:
     """
-    Efficient way to draw thousands of instances of a single 3D mesh,
-    animated with different instance data.
-    Set and unset uniforms in your shader before and after drawing with passed 'group'.
-    Implement data extraction and transformation in your shader.
+    Efficient way to draw many instances of a single 3D mesh, and transform them
+    using unique instance data.
+
+    Keys in the vertex_data should match attributes used in the shader.
+    Vertex indexing data is expected under 'indices': Sequence[int,...] in the vertex_data.
+    Set and unset uniforms in your shader before and after drawing with the passed 'group'.
     Execute your custom 'update_func' to update shader instance data with 'update()',
     before calling 'draw()' in your Window.on_draw().
 
-    Notes:
-    Designed to work with the return of load_obj_model(). You can pass dictionary with
-    model data, including "indices" as glDrawElementsInstanced is used for instance rendering.
-    Keys in the dictionary should match attributes in the shader program.
+    Typically, you may want to use 4 x vec4 instance_attributes in your shader,
+    then extract data in the vertex shader to form transformation mat4, for example.
+    Pass shader attribute names as strings via instance_attributes,
+    but pass instance_data as numpy array of 4x4 matrices "shape(num_instances, 16)".
     """
     def __init__(
             self,
-            model_data: dict,
+            vertex_data: dict[str, list | np.ndarray],
             instance_data: NDArray[np.float32],
             num_instances: int,
-            program: Optional[ShaderProgram] = None,
+            instance_attributes: Sequence[str],
+            program: Optional[ShaderProgram],
             group: Optional[Group] = None,
             update_func: Optional[Callable] = None
     ):
-        self.model_data = model_data
+        self.vertex_data = vertex_data
         self.instance_data = instance_data
         self.num_instances = num_instances
-        if program:
-            self.program = program
-        else:
-            self.program = ShaderProgram(
-                Shader(vertex_source, 'vertex'),
-                Shader(fragment_source, 'fragment')
-            )
+        self.instance_attributes = instance_attributes
+        self.program = program
 
-        self.attributes = [attr for attr in self.model_data.keys() if attr != 'indices']
+        self.attributes = [attr for attr in self.vertex_data.keys() if attr != 'indices']
 
         self.group = group if group else Group()
         self.func = update_func
-        self.indices = np.array(self.model_data['indices'], dtype=np.uint32)
+
+        try:
+            self.indices = np.array(self.vertex_data['indices'], dtype=np.uint32)
+        except KeyError:
+            raise KeyError("Key/value 'indices': Sequence[int,...] is expected in vertex_data.")
+
         self.num_indices = len(self.indices)
 
         self.program.use()
-
-        self.locations = {}
-        for attr in self.attributes[:]:
-            location = glGetAttribLocation(self.program.id, attr.encode('utf-8'))
-            if location != -1:
-                self.locations[attr] = location
-            else:
-                warnings.warn(f"Vertex attribute '{attr}' is not found in the shader program and will not be used!")
-                self.attributes.remove(attr)
 
         # Create and bind VAO
         self.vao = GLuint()
         glGenVertexArrays(1, ctypes.byref(self.vao))
         glBindVertexArray(self.vao)
 
-        # Create and populate EBO (Element Buffer Object)
-        self.ebo = GLuint()
-        glGenBuffers(1, ctypes.byref(self.ebo))
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
+        # create buffers from passed data
+        self.ebo = self._create_element_buffer_object()
+        self.vbos = self._create_vertex_buffer_objects()
+        self.instance_vbo = self._create_instance_buffer_object()
+
+        all_passed_attributes = self.attributes + list(self.instance_attributes)
+        for shader_attribute in self.program.attributes.keys():
+            if shader_attribute not in all_passed_attributes:
+                logger.info(f"Shader attribute '{shader_attribute}' is declared in the vertex shader, but got no data.")
+
+    def _create_element_buffer_object(self) -> GLuint:
+        ebo = GLuint()
+        glGenBuffers(1, ctypes.byref(ebo))
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
         glBufferData(
             GL_ELEMENT_ARRAY_BUFFER,
             self.indices.nbytes,
             self.indices.ctypes.data_as(ctypes.POINTER(ctypes.c_uint)),
             GL_STATIC_DRAW
         )
+        return ebo
 
-        # Create and populate VBO for instance data
-        # User must rename per instance data attribute as "model_data" in the shader
-        # self.instance_data_loc = glGetAttribLocation(self.program.id, b'instance_data')
-        # if self.instance_data_loc == -1:
-        #     raise AttributeError("Expected 'instance_data' attribute is not found in the shader program.")
+    def _create_instance_buffer_object(self) -> GLuint:
+        # creating buffer
+        instance_vbo = GLuint()
+        glGenBuffers(1, ctypes.byref(instance_vbo))
+        glBindBuffer(GL_ARRAY_BUFFER, instance_vbo)
 
-        self.instance_vbo = GLuint()
-        glGenBuffers(1, ctypes.byref(self.instance_vbo))
-        glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
+        # populating buffer data
         glBufferData(
             GL_ARRAY_BUFFER,
             self.instance_data.nbytes,
@@ -151,42 +98,51 @@ class InstanceRendering:
             GL_DYNAMIC_DRAW
         )
 
-        vec4_size = 4 * 4  # 16 bytes
-        stride = 4 * 4 * 4  # 64 bytes for 4x4 matrix
-        start_loc = glGetAttribLocation(self.program.id, b'instance_data_0')
+        # configuring attributes
+        for i, attr in enumerate(self.instance_attributes):
+            location = glGetAttribLocation(self.program.id, attr.encode('utf-8'))
+            if location == -1:
+                logger.info(f" Data set '{attr}' has no corresponding vertex shader attribute (it may be optimized or not declared).")
+                continue
 
-        for i in range(4):
-            loc = start_loc + i
-            # Instance data configuration
-            glVertexAttribPointer(
-                loc, 4, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(i * vec4_size)
-            )
-            glEnableVertexAttribArray(loc)
+            size = self.program.attributes[attr]['count']
+            stride = len(self.instance_attributes) * size
+
+            glVertexAttribPointer(location, size, GL_FLOAT, GL_FALSE, stride * 4, ctypes.c_void_p(i * size * 4))
+            glEnableVertexAttribArray(location)
             # This tells the GPU to read a new value of instance_data once per instance, not per vertex.
-            glVertexAttribDivisor(loc, 1)
+            glVertexAttribDivisor(location, 1)
 
-        # create, populate and configure VBO for vertex attributes
-        self.vbos = []
+        return instance_vbo
+
+    def _create_vertex_buffer_objects(self) -> list[GLuint]:
+        vbos = []
         for attr in self.attributes:
-            # prepare data
+            location = glGetAttribLocation(self.program.id, attr.encode('utf-8'))
+            if location == -1:
+                logger.info(f" Data set '{attr}' has no corresponding vertex shader attribute (it may be optimized or not declared).")
+                continue
+
+            data = np.array(self.vertex_data[attr], dtype=np.float32)
+            size = self.program.attributes[attr]['count']
+
+            # generating buffer
             vbo = GLuint()
-            location = self.locations[attr]
-            data = np.array(self.model_data[attr], dtype=np.float32)
-            size = 2 if attr == 'tex_coord' else 3  # consider passing ('type', data) as for pyglet vlists
-            # generate buffer
             glGenBuffers(1, ctypes.byref(vbo))
             glBindBuffer(GL_ARRAY_BUFFER, vbo)
-            # populate buffer data
+            # populating buffer data
             glBufferData(
                 GL_ARRAY_BUFFER,
                 data.nbytes,
                 data.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
                 GL_STATIC_DRAW
             )
-            # configure buffer data
-            glVertexAttribPointer(location, size, GL_FLOAT, GL_FALSE, size*4, 0)
+            # configuring attributes
+            glVertexAttribPointer(location, size, GL_FLOAT, GL_FALSE, size * 4, 0)
             glEnableVertexAttribArray(location)
-            self.vbos.append(vbo)
+            vbos.append(vbo)
+
+        return vbos
 
     def draw(self):
         """Call in your Window.on_draw() to draw instances."""
@@ -221,8 +177,12 @@ class InstanceRendering:
 
     def delete(self):
         """Call when done using this object within the same running context."""
-        glDeleteVertexArrays(1, ctypes.byref(self.vao))
-        glDeleteBuffers(1, ctypes.byref(self.ebo))
-        glDeleteBuffers(1, ctypes.byref(self.instance_vbo))
+        glBindVertexArray(0)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
         for buffer in self.vbos:
             glDeleteBuffers(1, ctypes.byref(buffer))
+        glDeleteBuffers(1, ctypes.byref(self.instance_vbo))
+        glDeleteBuffers(1, ctypes.byref(self.ebo))
+        glDeleteVertexArrays(1, ctypes.byref(self.vao))
+
