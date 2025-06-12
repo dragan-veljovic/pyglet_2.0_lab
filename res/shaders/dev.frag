@@ -144,5 +144,5 @@ void main() {
     float fade_factor = fade ? get_fade_factor() : 1.0;
 
     // Combine lighting and shadow factors
-    final_color = vec4(texture_diff * lighting, frag_color.a * fade_factor);
+    final_color = vec4(texture_diff * lighting * frag_color.rgb, frag_color.a * fade_factor);
 }
