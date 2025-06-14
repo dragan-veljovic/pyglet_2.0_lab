@@ -31,6 +31,8 @@ layout(std140) uniform LightBlock {
     bool directional;
     mat4 view;
     mat4 projection;
+    float cutoff_start;
+    float cutoff_end;
 } light;
 
 uniform float time;

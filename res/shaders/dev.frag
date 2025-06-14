@@ -22,6 +22,8 @@ layout(std140) uniform LightBlock {
     bool directional;
     mat4 view;
     mat4 projection;
+    float cutoff_start;
+    float cutoff_end;
 } light;
 
 // camera properties
@@ -111,27 +113,40 @@ vec3 get_phong_lighting(float shadow_factor, vec3 normal){
     vec3 diffuse;
     vec3 specular;
 
-    //
+    // light direction from current fragment
     vec3 light_direction = light.directional ?
         normalize(light.position - light.target) : normalize(light.position - frag_position);
 
     // Ambient lighting
     ambient = ambient_strength * light.color;
 
-    // Diffuse lighting
-    float diff = lighting_diffuse ? max(dot(light_direction, normal), 0.0) : 0.0;
-    diffuse = diffuse_strength * diff * light.color;
+    // check if fragment is outside of a spotlight's cutoff angle
+    float cos_theta = dot(light_direction, -normalize(light.target - light.position));
 
-    // Specular lighting
-    float spec;
-    if (lighting_specular){
-        vec3 view_dir = normalize(view_position - frag_position);  // direction to viewer
-        vec3 reflect_dir = reflect(-light_direction, normal);  // reflection around normal
-        spec = pow(max(dot(view_dir, reflect_dir), 0.0), shininess);  // Specular factor
+    if (cos_theta < light.cutoff_end) {  // same as theta > cutoff
+        diffuse = vec3(0.0);
+        specular = vec3(0.0);
+
     } else {
-        spec = 0.0;
+        // calcualte intensity adjustment for spotlight cutoff effect
+        float epsilon = light.cutoff_start - light.cutoff_end;
+        float intensity = clamp((cos_theta - light.cutoff_end) / epsilon, 0.0, 1.0);
+
+        // Diffuse lighting
+        float diff = lighting_diffuse ? max(dot(light_direction, normal), 0.0) : 0.0;
+        diffuse = intensity * diffuse_strength * diff * light.color;
+
+        // Specular lighting
+        float spec;
+        if (lighting_specular) {
+            vec3 view_dir = normalize(view_position - frag_position);  // direction to viewer
+            vec3 reflect_dir = reflect(-light_direction, normal);  // reflection around normal
+            spec = pow(max(dot(view_dir, reflect_dir), 0.0), shininess);  // Specular factor
+        } else {
+            spec = 0.0;
+        }
+        specular = intensity * specular_strength * spec * light.color;
     }
-    specular = specular_strength * spec * light.color;
 
     // Summarize and return result
     return vec3(ambient + (diffuse + specular) * shadow_factor);
