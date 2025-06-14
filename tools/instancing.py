@@ -5,10 +5,9 @@ import ctypes
 from pyglet.graphics.shader import ShaderProgram, Shader
 from pyglet.graphics import Group
 from typing import Optional, Sequence, Callable
-import logging
+from definitions import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(name)s: %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class InstanceRendering:

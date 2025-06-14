@@ -120,27 +120,27 @@ class DiffuseNormalTextureGroup(Group):
         self.transparency = transparency
         self.reset_normal_mapping_uniform = False
 
+        glActiveTexture(GL_TEXTURE0)
+        self.program['diffuse_texture'] = 0
         glActiveTexture(GL_TEXTURE1)
-        self.program['diffuse_texture'] = 1
-        glActiveTexture(GL_TEXTURE2)
-        self.program['normal_map'] = 2  # Texture unit
+        self.program['normal_map'] = 1  # Texture unit
 
     def set_state(self):
         # activate and bind diffuse texture
-        glActiveTexture(GL_TEXTURE1)
+        glActiveTexture(GL_TEXTURE0)
         glBindTexture(self.diffuse.target, self.diffuse.id)
 
         # activate and bind normal texture
         if self.program['normal_mapping']:
             if self.normal:
-                glActiveTexture(GL_TEXTURE2)
+                glActiveTexture(GL_TEXTURE1)
                 glBindTexture(self.normal.target, self.normal.id)
             else:
                 self.program['normal_mapping'] = False
                 self.reset_normal_mapping_uniform = True
 
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        #glEnable(GL_BLEND)
+        #glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
         # use ShaderGroup instead
         #self.program.use()
@@ -150,11 +150,12 @@ class DiffuseNormalTextureGroup(Group):
             self.program['normal_mapping'] = True
             self.reset_normal_mapping_uniform = False
 
-        # glBindTexture(self.normal_target, 0)
-        # glActiveTexture(GL_TEXTURE1)
-        # glBindTexture(self.diffuse.target, 0)
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(self.diffuse.target, 0)
+        glActiveTexture(GL_TEXTURE1)
+        glBindTexture(self.normal_target, 0)
 
-        glDisable(GL_BLEND)
+        #glDisable(GL_BLEND)
         #self.program.stop()
 
     def __hash__(self):

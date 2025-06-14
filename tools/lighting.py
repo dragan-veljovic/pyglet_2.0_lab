@@ -1,7 +1,10 @@
-from pyglet.graphics.shader import Shader, ShaderProgram
+from pyglet.graphics.shader import Shader, ShaderProgram, UniformBufferObject, UniformBlock
 from pyglet.graphics import Batch
 from pyglet.math import Vec3, Vec4, Mat4
 from pyglet.gl import *
+from tools.definitions import get_logger
+
+logger = get_logger(__name__)
 
 
 class Light:
@@ -9,7 +12,7 @@ class Light:
     def __init__(
             self,
             ambient=0.25,
-            diffuse=1.0,
+            diffuse=0.75,
             specular=1.0,
             color=(1.0, 1.0, 1.0),
     ):
@@ -18,8 +21,10 @@ class Light:
         self.specular = specular
         self.color = color
         self.up = Vec3(0, 1, 0)
-        self.proj_matrix = Mat4()
-        self.view_matrix = Mat4()
+        self.projection = Mat4()
+        self.view = Mat4()
+
+        self.ubo: UniformBufferObject | None = None
 
     def get_light_view_matrix(self):
         raise NotImplementedError("Light's View matrix is required for shadow mapping.")
@@ -27,14 +32,33 @@ class Light:
     def get_light_projection_matrix(self):
         raise NotImplementedError("Light's projection matrix is required for shadow mapping.")
 
+    def bind_to_block(self, light_block: UniformBlock) -> UniformBufferObject:
+        """
+        Before Light object can be used for lighting calculations, its attributes
+        must be updated in the shader uniforms, most efficiently through UniformBlock.
+        This helper method creates UniformBufferObject and binds it to passed UniformBlock.
+
+        Optionally returns created UBO for future manual updates.
+        """
+        self.ubo = light_block.create_ubo()
+        uniform_names = [udata[0] for udata in light_block.uniforms.values()]
+        with self.ubo as ubo:
+            for name in uniform_names:
+                if hasattr(self, name):
+                    value = getattr(self, name)
+                    setattr(ubo, name, value)
+                else:
+                    logger.info(f"Uniform {name} will not be update as {self.__class__.__name__} has no such attribute.")
+
+            return self.ubo
+
 
 class SpotLight(Light):
     """
     A spotlight is a frustum, formed from given z_near, z_far, aspect and fov parameters,
     oriented in space with position and target vectors.
     Shader lighting calculations consider light and fragment position to determine
-    light direction.
-    Shadow mapping consider spotlight as a perspective camera.
+    light direction. Shadow mapping consider spotlight as a perspective camera.
     TODO: limit lighting and shadowing to frustum volume only
     """
     def __init__(
@@ -45,21 +69,18 @@ class SpotLight(Light):
             z_near=200,
             z_far=5000,
             fov=80,
-            ambient=0.25,
-            diffuse=1.0,
-            specular=1.0,
-            color=(1.0, 1.0, 1.0),
+            **kwargs
     ):
-        super().__init__(ambient, diffuse, specular, color)
+        super().__init__(**kwargs)
         self.position = position
         self.target = target
         self.aspect = aspect_ratio
+        self.directional = False
         self.z_near = z_near
         self.z_far = z_far
         self.fov = fov
-        self.view_matrix = self.get_light_view_matrix()
-        self.proj_matrix = self.get_light_projection_matrix()
-        self.directional_light = False
+        self.view = self.get_light_view_matrix()
+        self.projection = self.get_light_projection_matrix()
 
     def get_light_view_matrix(self) -> Mat4:
         return Mat4.look_at(self.position, self.target, self.up)
@@ -80,24 +101,25 @@ class DirectionalLight(Light):
             width=1280,
             height=720,
             z_near=200,
-            z_far=5000
+            z_far=5000,
+            **kwargs
     ):
-        super().__init__()
-        self.position = position
+        super().__init__(**kwargs)
+        self.position = position  # trivial for lighting calc, but useful direction and shadow mapping
         self.target = Vec3(0, 0, 0)
         self.width = width
         self.height = height
+        self.directional = True
         self.z_near = z_near
         self.z_far = z_far
-        self.view_matrix = self.get_light_view_matrix()
-        self.proj_matrix = self.get_light_projection_matrix()
-        self.directional_light = True
+        self.view = self.get_light_view_matrix()
+        self.projection = self.get_light_projection_matrix()
 
     def get_light_view_matrix(self) -> Mat4:
         return Mat4.look_at(self.position, self.target, self.up)
 
     def get_light_projection_matrix(self) -> Mat4:
-        return Mat4.orthogonal_projection(-3440, 3440, -1440, 1440, self.z_near, self.z_far)
+        return Mat4.orthogonal_projection(-self.width, self.width, -self.height, self.height, self.z_near, self.z_far)
 
 
 class ShadowMap:
@@ -133,8 +155,8 @@ class ShadowMap:
         glActiveTexture(GL_TEXTURE4)
         glBindTexture(GL_TEXTURE_2D, self.depth_map)
 
-        self.shadow_program['light_proj'] = self.light.proj_matrix
-        self.shadow_program['light_view'] = self.light.view_matrix
+        self.shadow_program['light_proj'] = self.light.projection
+        self.shadow_program['light_view'] = self.light.view
         self.shadow_batch.draw()
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
         glViewport(0, 0, self.width, self.height)

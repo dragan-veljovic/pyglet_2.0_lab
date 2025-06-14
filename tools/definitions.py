@@ -6,6 +6,17 @@ from pyglet.graphics.shader import Shader, ShaderProgram
 import pyglet
 import timeit
 from pyglet.graphics.shader import ShaderProgram, Shader
+import logging
+
+DEBUG_MODE = True
+logging.basicConfig(
+    level=logging.DEBUG if DEBUG_MODE else logging.INFO,
+    format='%(levelname)s: %(name)s: %(message)s'
+)
+
+
+def get_logger(name=None):
+    return logging.getLogger(name)
 
 
 def set_background_color(r: int = 20, g: int = 30, b: int = 40, a=255):

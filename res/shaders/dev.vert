@@ -1,16 +1,17 @@
 #version 330 core
+// vertex atrribute
 layout (location = 0) in vec3 position;
 layout (location = 1) in vec4 color;
 layout (location = 2) in vec2 tex_coord;
 layout (location = 3) in vec3 normal;
 layout (location = 4) in vec3 tangent;
 layout (location = 5) in vec3 bitangent;
-
+// instance attribute
 layout (location = 6) in vec4 instance_data_0;
 layout (location = 7) in vec4 instance_data_1;
 layout (location = 8) in vec4 instance_data_2;
 layout (location = 9) in vec4 instance_data_3;
-
+// outputs
 out vec3 frag_position;
 out vec4 frag_color;
 out vec2 frag_tex_coord;
@@ -23,8 +24,15 @@ uniform WindowBlock {
     mat4 view;
 } window;
 
-uniform mat4 light_proj;
-uniform mat4 light_view;
+layout(std140) uniform LightBlock {
+    vec3 position;
+    vec3 target;
+    vec3 color;
+    bool directional;
+    mat4 view;
+    mat4 projection;
+} light;
+
 uniform float time;
 
 // instance rendering
@@ -175,7 +183,7 @@ void main() {
     // for this look into
     //"Shader Switching: When switching between shader programs,
      //uniform blocks can persist if they're bound to the same binding point"
-    frag_shadow_coord = light_proj * light_view * model * vec4(position, 1.0);
+    frag_shadow_coord = light.projection * light.view * model * vec4(position, 1.0);
 
     gl_Position = window.projection * window.view * model * vec4(position, 1.0);
 }

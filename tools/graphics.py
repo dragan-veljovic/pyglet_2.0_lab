@@ -257,21 +257,23 @@ class TextureGroup(Group):
         self.texture = texture
         self.program = program
         self.transparency = transparency
+        #self.program['diffuse_texture'] = 0
 
     def set_state(self):
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(self.texture.target, self.texture.id)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        if self.transparency:
-            glDepthMask(GL_FALSE)
-        self.program.use()
+        # glEnable(GL_BLEND)
+        # glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        # if self.transparency:
+        #     glDepthMask(GL_FALSE)
+        # self.program.use()
 
     def unset_state(self):
-        glDisable(GL_BLEND)
-        if self.transparency:
-            glDepthMask(GL_TRUE)
-        self.program.stop()
+        # glDisable(GL_BLEND)
+        # if self.transparency:
+        #     glDepthMask(GL_TRUE)
+        #self.program.stop()
+        pass
 
     def __hash__(self):
         return hash((self.texture.target, self.texture.id, self.order, self.parent, self.program))
@@ -467,11 +469,11 @@ class NormalMappedTexturedPlane:
         self.vertex_list = self.program.vertex_list(
             count, GL_TRIANGLES, batch, group,
             position=('f', gl_triangles_vertices),
-            normals=('f', normals),
-            colors=('Bn', self.color * count),
-            tex_coords=('f', tex_coords),
-            tangents=('f', tangent * count),
-            bitangents=('f', bitangent * count)
+            normal=('f', normals),
+            color=('Bn', self.color * count),
+            tex_coord=('f', tex_coords),
+            tangent=('f', tangent * count),
+            bitangent=('f', bitangent * count)
         )
 
 
@@ -482,7 +484,7 @@ class WireframeCube:
             program: ShaderProgram,
             batch: Batch,
             group: Group = None,
-            color=(255, 255, 255, 255),
+            color=(1.0, 1.0, 1.0, 1.0),
             position=Vec3(0, 0, 0),
             length=100
     ):
@@ -490,7 +492,7 @@ class WireframeCube:
         self.batch = batch
         self.group = group
         self.r, self.g, self.b = color[:3]
-        self.a = color[3] if len(color) == 4 else 255
+        self.a = color[3] if len(color) == 4 else 1.0
         self.color = self.r, self.g, self.b, self.a
         self.position = position
         self.length = length
@@ -506,7 +508,7 @@ class WireframeCube:
             self.batch,
             self.group,
             position=('f', self.gl_line_vertices),
-            colors=('Bn', self.colors)
+            color=('f', self.colors)
         )
 
     def get_vertices(self):
@@ -547,7 +549,7 @@ class Cuboid:
                 position=(0, 0, 0),
                 size=(200, 200, 200),
                 texture: Texture = None,
-                color=None
+                color=(255, 255, 255, 255)
         ):
             self.program = program
             self.batch = batch
@@ -559,7 +561,7 @@ class Cuboid:
             else:
                 self.group = None
 
-            self.color = color or (255, 255, 255, 255)
+            self.color = color
 
             self.vertices = self._get_vertices()
             self.gl_triangles_vertices = self._get_gl_triangles_vertices()
@@ -574,9 +576,9 @@ class Cuboid:
                 self.batch,
                 self.group,
                 position=('f', self.gl_triangles_vertices),
-                normals=('f', self.normals),
-                colors=('f', self.colors),
-                tex_coords=('f', self.tex_coords)
+                normal=('f', self.normals),
+                color=('f', self.colors),
+                tex_coord=('f', self.tex_coords)
             )
 
         def _get_vertices(self) -> tuple:
