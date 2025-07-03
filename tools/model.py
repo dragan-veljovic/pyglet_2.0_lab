@@ -10,10 +10,175 @@ from pyglet.graphics.vertexdomain import IndexedVertexList
 from pyglet.image import Texture
 from pyglet.gl import *
 from pyglet.math import Vec3, Mat4
+from pyglet.model import Model
+from typing import Sequence
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+
+class Plane(Model):
+    """A rectangular plane with support for texturing and advanced lighting."""
+    def __init__(
+            self,
+            program: ShaderProgram,
+            batch: Batch,
+            group: Group,
+            position=Vec3(0, 0, 0),
+            length=100,
+            width=100,
+            centered=False,
+            color=(1.0, 1.0, 1.0, 1.0)
+    ):
+        self.position = position
+        self.length, self.width = length, width
+        self.centered = centered
+
+        positions = self._get_vertices()
+        indices = self._get_indices()
+        tex_coords = self._get_tex_coords()
+        normals = calculate_normals(positions, indices)
+        tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
+
+        self.data = {
+            'indices': indices,
+            'position': positions,
+            'tex_coord': tex_coords,
+            'color': color * (len(positions)//3),
+            'normal': normals,
+            'tangent': tangents,
+            'bitangent': bitangents
+        }
+
+        vertex_list = get_vertex_list(self.data, program, batch, group)
+        super().__init__([vertex_list], [group], batch)
+
+    def _get_vertices(self) -> tuple:
+        l, w = self.length, self.width
+        if self.centered:
+            x, y, z = self.position.x - l/2, self.position.y, self.position.z - w/2
+        else:
+            x, y, z = self.position.x, self.position.y, self.position.z
+        return (
+            x, y, z,
+            x + l, y, z,
+            x + l, y, z + w,
+            x, y, z + w
+        )
+
+    def _get_indices(self):
+        return 0, 2, 1, 0, 3, 2
+
+    def _get_tex_coords(self) -> tuple:
+        return 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0
+
+
+class Cuboid(Model):
+    """A cube model with support for texturing and advanced lighting."""
+    def __init__(
+            self,
+            program: ShaderProgram,
+            batch: Batch,
+            group: Group | None = None,
+            position=Vec3(0, 0, 0),
+            size=(100, 100, 100),
+            color=(1.0, 1.0, 1.0, 1.0)
+    ):
+        self.position = position
+        self.size = size
+
+        positions = self._get_vertices()
+        indices = self._get_indices()
+        tex_coords = self._get_tex_coords()
+
+        normals = calculate_normals(positions, indices)
+        tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
+
+        self.data = {
+            'indices': indices,
+            'position': positions,
+            'tex_coord': tex_coords,
+            'color': color * (len(positions) // 3),
+            'normal': normals,
+            'tangent': tangents,
+            'bitangent': bitangents
+        }
+
+        vertex_list = get_vertex_list(self.data, program, batch, group)
+        super().__init__([vertex_list], [group], batch)
+
+    def _get_vertices(self) -> tuple:
+        x, y, z = self.position
+        lxh, lyh, lzh = self.size[0] / 2, self.size[1] / 2, self.size[2] / 2
+
+        # 4 vertices per face, 6 faces
+        vertices = (
+            # Front face (+Z)
+            x - lxh, y - lyh, z + lzh,
+            x + lxh, y - lyh, z + lzh,
+            x + lxh, y + lyh, z + lzh,
+            x - lxh, y + lyh, z + lzh,
+
+            # Back face (-Z)
+            x + lxh, y - lyh, z - lzh,
+            x - lxh, y - lyh, z - lzh,
+            x - lxh, y + lyh, z - lzh,
+            x + lxh, y + lyh, z - lzh,
+
+            # Left face (-X)
+            x - lxh, y - lyh, z - lzh,
+            x - lxh, y - lyh, z + lzh,
+            x - lxh, y + lyh, z + lzh,
+            x - lxh, y + lyh, z - lzh,
+
+            # Right face (+X)
+            x + lxh, y - lyh, z + lzh,
+            x + lxh, y - lyh, z - lzh,
+            x + lxh, y + lyh, z - lzh,
+            x + lxh, y + lyh, z + lzh,
+
+            # Top face (+Y)
+            x - lxh, y + lyh, z + lzh,
+            x + lxh, y + lyh, z + lzh,
+            x + lxh, y + lyh, z - lzh,
+            x - lxh, y + lyh, z - lzh,
+
+            # Bottom face (-Y)
+            x - lxh, y - lyh, z - lzh,
+            x + lxh, y - lyh, z - lzh,
+            x + lxh, y - lyh, z + lzh,
+            x - lxh, y - lyh, z + lzh,
+        )
+        return vertices
+
+    @staticmethod
+    def _get_indices() -> tuple:
+        # 2 triangles per face × 6 faces
+        indices = (
+            # Front face
+            0, 1, 2, 0, 2, 3,
+            # Back face
+            4, 5, 6, 4, 6, 7,
+            # Left face
+            8, 9, 10, 8, 10, 11,
+            # Right face
+            12, 13, 14, 12, 14, 15,
+            # Top face
+            16, 17, 18, 16, 18, 19,
+            # Bottom face
+            20, 21, 22, 20, 22, 23,
+        )
+        return indices
+
+    @staticmethod
+    def _get_tex_coords() -> tuple:
+        # Each face: (0,0)-(1,1)
+        face_uvs = (
+            0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0,
+        )
+        tex_coords = face_uvs * 6  # repeat for all 6 faces
+        return tex_coords
 
 
 class DynamicModel:
@@ -94,10 +259,41 @@ class DynamicRenderGroup(Group):
         return hash((self.order, self.parent, self.program, self.model, self.transform_on_gpu))
 
 
+class BlendGroup(Group):
+    def __init__(
+        self,
+        blend_src: int = GL_SRC_ALPHA,
+        blend_dest: int = GL_ONE_MINUS_SRC_ALPHA,
+        order=0,
+        parent: Group | None = None
+    ):
+        super().__init__(order, parent)
+        self.blend_src = blend_src
+        self.blend_dest = blend_dest
+
+    def set_state(self) -> None:
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+    def unset_state(self) -> None:
+        glDisable(GL_BLEND)
+
+    def __hash__(self):
+        return hash((self.blend_src, self.blend_dest, self.order, self.parent))
+
+    def __eq__(self, other):
+        return (self.__class__ == other.__class__ and
+                self.blend_src == other.blend_src and
+                self.blend_dest == other.blend_dest and
+                self.order == other.order and
+                self.parent == other.parent
+                )
+
+
 class DiffuseNormalTextureGroup(Group):
     def __init__(
             self,
-            diffuse: Texture,
+            diffuse: Texture = None,
             normal: Texture = None,
             program: ShaderProgram = None,
             transparency: bool = False,
@@ -127,8 +323,9 @@ class DiffuseNormalTextureGroup(Group):
 
     def set_state(self):
         # activate and bind diffuse texture
-        glActiveTexture(GL_TEXTURE0)
-        glBindTexture(self.diffuse.target, self.diffuse.id)
+        if self.diffuse:
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(self.diffuse.target, self.diffuse.id)
 
         # activate and bind normal texture
         if self.program['normal_mapping']:
@@ -139,35 +336,28 @@ class DiffuseNormalTextureGroup(Group):
                 self.program['normal_mapping'] = False
                 self.reset_normal_mapping_uniform = True
 
-        #glEnable(GL_BLEND)
-        #glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-
-        # use ShaderGroup instead
-        #self.program.use()
-
     def unset_state(self):
         if self.reset_normal_mapping_uniform:
             self.program['normal_mapping'] = True
             self.reset_normal_mapping_uniform = False
 
-        glActiveTexture(GL_TEXTURE0)
-        glBindTexture(self.diffuse.target, 0)
-        glActiveTexture(GL_TEXTURE1)
-        glBindTexture(self.normal_target, 0)
-
-        #glDisable(GL_BLEND)
-        #self.program.stop()
+        if self.diffuse:
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(self.diffuse_target, 0)
+        if self.normal:
+            glActiveTexture(GL_TEXTURE1)
+            glBindTexture(self.normal_target, 0)
 
     def __hash__(self):
-        return hash((self.diffuse.target, self.diffuse.id, self.normal_target, self.normal_id, self.order, self.parent,
+        return hash((self.diffuse_target, self.diffuse_id, self.normal_target, self.normal_id, self.order, self.parent,
                      self.program))
 
     def __eq__(self, other: Group):
         return (self.__class__ is other.__class__ and
                 self.normal_target == other.normal_target and
                 self.normal.id == other.normal_id and
-                self.diffuse.target == other.diffuse.target and
-                self.diffuse.id == other.diffuse.id and
+                self.diffuse_target == other.diffuse_target and
+                self.diffuse_id == other.diffuse_id and
                 self.order == other.order and
                 self.program == other.program and
                 self.parent == other.parent)
@@ -180,22 +370,35 @@ class DiffuseNormalTextureGroup(Group):
     def normal_target(self):
         return self.normal.target if self.normal else None
 
+    @property
+    def diffuse_id(self):
+        return self.diffuse.id if self.diffuse else None
+
+    @property
+    def diffuse_target(self):
+        return self.diffuse.target if self.diffuse else None
+
 
 def get_model_matrix(
         position: Vec3,
         rotation_angle: float,
-        rotation_dir: Vec3,
-        scale: Vec3,
-        origin: Vec3,
+        rotation_dir=Vec3(0, 1, 0),
+        scale=Vec3(1, 1, 1),
+        origin: Vec3 | None = None,
 ) -> Mat4:
-    translate_to_origin = Mat4.from_translation(-origin)
-    translate_back = Mat4.from_translation(origin)
+    """Create model matrix from given parameters, using pyglet.math builtins."""
 
     rotation = Mat4.from_rotation(rotation_angle, rotation_dir)
     scale = Mat4.from_scale(scale)
     translation = Mat4.from_translation(position)
 
-    return translate_back @ translation @ rotation @ translate_to_origin @ scale
+    if origin:
+        translate_to_origin = Mat4.from_translation(-origin)
+        translate_back = Mat4.from_translation(origin)
+        return translate_back @ translation @ rotation @ translate_to_origin @ scale
+
+    return translation @ rotation @ scale
+
 
 import numpy as np
 def get_model_matrix_np(translation, rotation_angle, rotation_axis, scale, origin):
@@ -244,9 +447,9 @@ def load_obj_model(filename) -> dict:
 
     Returns:
         dict: Dictionary containing flattened vertex data:
-            - 'positions': Flattened position coordinates [x0, y0, z0, x1, y1, z1, ...]
-            - 'normals': Flattened normal vectors (if available)
-            - 'tex_coords': Flattened texture coordinates (if available)
+            - 'position': Flattened position coordinates [x0, y0, z0, x1, y1, z1, ...]
+            - 'normal': Flattened normal vectors (if available)
+            - 'tex_coord': Flattened texture coordinates (if available)
             - 'indices': Vertex indices for indexed rendering
     """
     # Temporary storage for the file data
@@ -348,63 +551,7 @@ def load_obj_model(filename) -> dict:
 
     # If no normals were provided in the file, calculate them
     if not final_normals and final_positions:
-        # Calculate normals for each triangle and average them at shared vertices
-        vertex_count = len(final_positions) // 3
-        normals_sum = [[0.0, 0.0, 0.0] for _ in range(vertex_count)]
-        normals_count = [0] * vertex_count
-
-        # Process each triangle
-        for i in range(0, len(indices), 3):
-            if i + 2 < len(indices):
-                # Get triangle indices
-                idx1, idx2, idx3 = indices[i], indices[i + 1], indices[i + 2]
-
-                # Get triangle vertices
-                v1 = final_positions[idx1 * 3:idx1 * 3 + 3]
-                v2 = final_positions[idx2 * 3:idx2 * 3 + 3]
-                v3 = final_positions[idx3 * 3:idx3 * 3 + 3]
-
-                # Calculate triangle edges
-                edge1 = [v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]]
-                edge2 = [v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]]
-
-                # Calculate cross product (normal)
-                normal = [
-                    edge1[1] * edge2[2] - edge1[2] * edge2[1],
-                    edge1[2] * edge2[0] - edge1[0] * edge2[2],
-                    edge1[0] * edge2[1] - edge1[1] * edge2[0]
-                ]
-
-                # Normalize
-                length = (normal[0] ** 2 + normal[1] ** 2 + normal[2] ** 2) ** 0.5
-                if length > 0:
-                    normal = [normal[0] / length, normal[1] / length, normal[2] / length]
-                else:
-                    normal = [0.0, 0.0, 1.0]  # Default normal if calculation failed
-
-                # Add to each vertex of this triangle
-                for idx in [idx1, idx2, idx3]:
-                    for j in range(3):
-                        normals_sum[idx][j] += normal[j]
-                    normals_count[idx] += 1
-
-        # Average the normals and add to final array
-        for i in range(vertex_count):
-            if normals_count[i] > 0:
-                # Average
-                for j in range(3):
-                    normals_sum[i][j] /= normals_count[i]
-
-                # Normalize again
-                vec = normals_sum[i]
-                length = (vec[0] ** 2 + vec[1] ** 2 + vec[2] ** 2) ** 0.5
-                if length > 0:
-                    for j in range(3):
-                        final_normals.append(vec[j] / length)
-                else:
-                    final_normals.extend([0.0, 0.0, 1.0])
-            else:
-                final_normals.extend([0.0, 0.0, 1.0])
+       final_normals = calculate_normals(final_positions, indices)
 
     # If no texture coordinates were provided, create default ones
     if not final_tex_coords and final_positions:
@@ -422,15 +569,79 @@ def load_obj_model(filename) -> dict:
     }
 
 
+def calculate_normals(final_positions, indices) -> list:
+    """Calculate triangle normals based on positions and indices."""
+    final_normals = []
+    # Calculate normals for each triangle and average them at shared vertices
+    vertex_count = len(final_positions) // 3
+    normals_sum = [[0.0, 0.0, 0.0] for _ in range(vertex_count)]
+    normals_count = [0] * vertex_count
+
+    # Process each triangle
+    for i in range(0, len(indices), 3):
+        if i + 2 < len(indices):
+            # Get triangle indices
+            idx1, idx2, idx3 = indices[i], indices[i + 1], indices[i + 2]
+
+            # Get triangle vertices
+            v1 = final_positions[idx1 * 3:idx1 * 3 + 3]
+            v2 = final_positions[idx2 * 3:idx2 * 3 + 3]
+            v3 = final_positions[idx3 * 3:idx3 * 3 + 3]
+
+            # Calculate triangle edges
+            edge1 = [v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]]
+            edge2 = [v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]]
+
+            # Calculate cross product (normal)
+            normal = [
+                edge1[1] * edge2[2] - edge1[2] * edge2[1],
+                edge1[2] * edge2[0] - edge1[0] * edge2[2],
+                edge1[0] * edge2[1] - edge1[1] * edge2[0]
+            ]
+
+            # Normalize
+            length = (normal[0] ** 2 + normal[1] ** 2 + normal[2] ** 2) ** 0.5
+            if length > 0:
+                normal = [normal[0] / length, normal[1] / length, normal[2] / length]
+            else:
+                normal = [0.0, 0.0, 1.0]  # Default normal if calculation failed
+
+            # Add to each vertex of this triangle
+            for idx in [idx1, idx2, idx3]:
+                for j in range(3):
+                    normals_sum[idx][j] += normal[j]
+                normals_count[idx] += 1
+
+    # Average the normals and add to final array
+    for i in range(vertex_count):
+        if normals_count[i] > 0:
+            # Average
+            for j in range(3):
+                normals_sum[i][j] /= normals_count[i]
+
+            # Normalize again
+            vec = normals_sum[i]
+            length = (vec[0] ** 2 + vec[1] ** 2 + vec[2] ** 2) ** 0.5
+            if length > 0:
+                for j in range(3):
+                    final_normals.append(vec[j] / length)
+            else:
+                final_normals.extend([0.0, 0.0, 1.0])
+        else:
+            final_normals.extend([0.0, 0.0, 1.0])
+
+    return final_normals
+
+
 def calculate_tangents(positions, normals, tex_coords, indices):
     """
-    Calculate tangent and bitangent vectors for normal mapping
+    Calculate tangent and bitangent vectors for normal mapping from passed vertex data.
 
     Args:
-        positions (list): Flattened position data [x0, y0, z0, x1, y1, z1, ...]
-        normals (list): Flattened normal data
-        tex_coords (list): Flattened texture coordinate data [u0, v0, u1, v1, ...]
-        indices (list): Vertex indices
+        positions: Flattened position data [x0, y0, z0, x1, y1, z1, ...]
+        normals: Flattened normal data
+        tex_coords: Flattened texture coordinate data [u0, v0, u1, v1, ...]
+        indices: Vertex indices
 
     Returns:
         tuple: (tangents, bitangents) as flattened lists
@@ -658,7 +869,7 @@ def transform_model_data(
         rotation=(0, 0, 0),
         scale=1.0,
         tex_scale: float = None,
-        colors=(1.0, 1.0, 1.0, 1.0)
+        color=(1.0, 1.0, 1.0, 1.0)
 ) -> dict:
     """
     Calculates tangents, bitangents, normals (if not present)
@@ -703,7 +914,7 @@ def transform_model_data(
     model_data.update({
         'position': transformed_positions,
         'normal': transformed_normals,
-        'color': colors * count,
+        'color': color * count,
         'tangent': tangents,
         'bitangent': bitangents
     })
@@ -717,6 +928,7 @@ def get_vertex_list(
         batch: Batch,
         group: Group
 ) -> IndexedVertexList:
+    """Convenience function, to get vertex list from the output of load/transform model functions."""
 
     return program.vertex_list_indexed(
         len(model_data['position'])//3,

@@ -150,7 +150,7 @@ void main() {
     // a large static mesh will still be multiplied by default mat3(1.0) wasting resources
     mat4 model;
     if (instance_rendering) {
-        model = get_instance_model_matrix_gpu();
+        model = get_instance_model_matrix();
     } else {
         if (rendering_dynamic_object) {
             if (transform_on_gpu) {

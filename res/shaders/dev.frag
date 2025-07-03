@@ -14,6 +14,7 @@ out vec4 final_color;
 uniform sampler2D diffuse_texture;  // texture slot 0
 uniform sampler2D normal_map;  // texture slot 1
 uniform sampler2D shadow_map;  // texture slot 4
+uniform samplerCube skybox;  // texture slot 5
 
 layout(std140) uniform LightBlock {
     vec3 position;
@@ -37,9 +38,9 @@ uniform float fade_length = 1000.0;
 //uniform bool light_directional = false;
 //uniform vec3 light_color = vec3(1.0);
 
-uniform float ambient_strength = 0.25;
-uniform float diffuse_strength = 0.75;
 // material properties
+uniform float ambient_strength = 0.25;
+uniform float diffuse_strength = 0.50;
 uniform float specular_strength = 1.0;
 uniform float shininess = 128;
 
@@ -51,6 +52,7 @@ uniform bool lighting_diffuse = true;
 uniform bool lighting_specular = true;
 uniform bool texturing = true;
 uniform bool normal_mapping = true;
+uniform bool environment_mapping = true;
 uniform bool fade = true;
 
 
@@ -108,24 +110,24 @@ vec3 get_TBN_transformed_normals(){
     return normal;
 }
 
-vec3 get_phong_lighting(float shadow_factor, vec3 normal){
-    vec3 ambient;
-    vec3 diffuse;
-    vec3 specular;
+vec3 get_phong_lighting_factors(vec3 normal){
+    float ambient;
+    float diffuse;
+    float specular;
 
     // light direction from current fragment
     vec3 light_direction = light.directional ?
         normalize(light.position - light.target) : normalize(light.position - frag_position);
 
     // Ambient lighting
-    ambient = ambient_strength * light.color;
+    ambient = ambient_strength;
 
     // check if fragment is outside of a spotlight's cutoff angle
     float cos_theta = dot(light_direction, -normalize(light.target - light.position));
 
     if (cos_theta < light.cutoff_end) {  // same as theta > cutoff
-        diffuse = vec3(0.0);
-        specular = vec3(0.0);
+        diffuse = 0.0;
+        specular = 0.0;
 
     } else {
         // calcualte intensity adjustment for spotlight cutoff effect
@@ -134,7 +136,7 @@ vec3 get_phong_lighting(float shadow_factor, vec3 normal){
 
         // Diffuse lighting
         float diff = lighting_diffuse ? max(dot(light_direction, normal), 0.0) : 0.0;
-        diffuse = intensity * diffuse_strength * diff * light.color;
+        diffuse = intensity * diffuse_strength * diff;
 
         // Specular lighting
         float spec;
@@ -145,11 +147,33 @@ vec3 get_phong_lighting(float shadow_factor, vec3 normal){
         } else {
             spec = 0.0;
         }
-        specular = intensity * specular_strength * spec * light.color;
+        specular = intensity * specular_strength * spec;
     }
 
     // Summarize and return result
-    return vec3(ambient + (diffuse + specular) * shadow_factor);
+    return vec3(ambient, diffuse, specular);
+}
+
+vec3 get_environment_mapping(vec3 normal){
+    // refraction
+    float ratio = 1.00 / 1.52;
+    vec3 view_dir = normalize(frag_position - view_position);
+    vec3 sample_vector = -refract(view_dir, normal, ratio);
+    vec3 refraction = texture(skybox, sample_vector).rgb;
+    // reflection
+    sample_vector = -reflect(view_dir, normal);
+    vec3 reflection = texture(skybox, sample_vector).rgb;
+    return reflection;
+}
+
+vec3 get_lighting(float shadow_factor, vec3 normal, vec3 texture_diff){
+    // Custom function that applies all lighting factors
+    vec3 phong = get_phong_lighting_factors(normal);
+    float ambient = phong.x;
+    float diffuse = phong.y;
+    float specular = phong.z;
+    // specular not affected by object colors (only light color) is more realistic
+    return ((ambient + diffuse * shadow_factor) * texture_diff + specular * shadow_factor) * light.color;
 }
 
 
@@ -163,13 +187,17 @@ void main() {
     float shadow_factor = shadow_mapping ? get_shadow_factor() : 1.0;
     // Normal mapping
     vec3 normal = normal_mapping ? get_TBN_transformed_normals() : normalize(frag_normal);
-    // Phong lighting
-    vec3 lighting = lighting ? get_phong_lighting(shadow_factor, normal) : vec3(1.0) * shadow_factor;
     // Texturing
-    vec3 texture_diff = texturing ? get_diffuse_texture() : frag_color.rgb;
+    vec3 texture_diff = texturing ? get_diffuse_texture() : vec3(0);
+
+    // Environment mapping
+    vec3 env_map = environment_mapping ? get_environment_mapping(normal) : vec3(0.0);
+
+    // Phong lighting
+    vec3 lighting = lighting ? get_lighting(shadow_factor, normal, texture_diff) : vec3(1.0) * shadow_factor;
     // Fade effect
     float fade_factor = fade ? get_fade_factor() : 1.0;
 
     // Combine lighting and shadow factors
-    final_color = vec4(texture_diff * lighting * frag_color.rgb, frag_color.a * fade_factor);
+    final_color = vec4(lighting  + env_map, frag_color.a * fade_factor);
 }

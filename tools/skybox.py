@@ -72,7 +72,7 @@ def create_cube_map(path: str, ext: str = 'jpg') -> GLuint:
 
     for target, image in zip(face_targets, face_images):
         # loading image
-        image = pyglet.image.load(path + f'{image}.{ext}').get_texture()
+        image = pyglet.image.load(path + f'/{image}.{ext}').get_texture()
         image_data = image.get_image_data()
         # get the raw pixel bytes (RGBA format)
         raw_data = image_data.get_bytes('RGBA', image.width * 4)  # 4 bytes per pixel
@@ -98,6 +98,8 @@ class Skybox:
         )
 
         self.cube_map = create_cube_map(image_path, extension)
+        # assign cube map texture to texture slot 0
+        self.shader["skybox"] = 0
 
         # Create the skybox vertices (a simple cube centered at origin)
         # Each vertex is just the direction vector from center to the vertex
@@ -183,8 +185,6 @@ class Skybox:
         # Bind skybox texture
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(GL_TEXTURE_CUBE_MAP, self.cube_map)
-        # Set the skybox uniform to texture unit 0
-        self.shader["skybox"] = 0
 
         # Draw the skybox cube
         glBindVertexArray(self.vao)

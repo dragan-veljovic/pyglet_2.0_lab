@@ -1,9 +1,11 @@
 import math
+import weakref
 
 from pyglet.graphics.shader import Shader, ShaderProgram, UniformBufferObject, UniformBlock
 from pyglet.graphics import Batch
 from pyglet.math import Vec3, Vec4, Mat4
 from pyglet.gl import *
+from pyglet.window import Window
 from tools.definitions import get_logger
 
 logger = get_logger(__name__)
@@ -153,6 +155,7 @@ class ShadowMap:
     def __init__(
             self,
             light: Light,
+            window: Window,
             program: ShaderProgram,
             shadow_width=1000, shadow_height=1000,
     ):
@@ -161,9 +164,9 @@ class ShadowMap:
         """
         self.light = light
         self.program = program
+        self.window = weakref.proxy(window)
         self.shadow_width = shadow_width
         self.shadow_height = shadow_height
-        self.width, self.height = 3440, 1440  # USE WINDOW
 
         # shader program for the shadow map creation pass
         self.shadow_batch = Batch()
@@ -186,7 +189,7 @@ class ShadowMap:
         self.shadow_program['light_view'] = self.light.view
         self.shadow_batch.draw()
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
-        glViewport(0, 0, self.width, self.height)
+        glViewport(0, 0, self.window.width, self.window.height)
 
     @staticmethod
     def _get_default_shadow_program() -> ShaderProgram:

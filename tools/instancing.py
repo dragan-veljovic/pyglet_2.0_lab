@@ -5,7 +5,7 @@ import ctypes
 from pyglet.graphics.shader import ShaderProgram, Shader
 from pyglet.graphics import Group
 from typing import Optional, Sequence, Callable
-from definitions import get_logger
+from tools.definitions import get_logger
 
 logger = get_logger(__name__)
 
