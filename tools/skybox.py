@@ -193,3 +193,9 @@ class Skybox:
 
         # Restore OpenGL state
         glDepthFunc(depth_func.value)
+
+    def set_environment_map(self, program: ShaderProgram, uniform: str = "skybox", tex_slot: int = 5):
+        program.use()
+        program[uniform] = tex_slot
+        glActiveTexture(GL_TEXTURE0 + tex_slot)
+        glBindTexture(GL_TEXTURE_CUBE_MAP, self.cube_map)

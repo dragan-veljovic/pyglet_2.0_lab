@@ -43,6 +43,7 @@ uniform float ambient_strength = 0.25;
 uniform float diffuse_strength = 0.50;
 uniform float specular_strength = 1.0;
 uniform float shininess = 128;
+uniform float refractive_index = 1.52;
 
 // rendering flags
 uniform bool shadow_mapping = true;
@@ -156,14 +157,14 @@ vec3 get_phong_lighting_factors(vec3 normal){
 
 vec3 get_environment_mapping(vec3 normal){
     // refraction
-    float ratio = 1.00 / 1.52;
+    float ratio = 1.00 / refractive_index;
     vec3 view_dir = normalize(frag_position - view_position);
     vec3 sample_vector = -refract(view_dir, normal, ratio);
     vec3 refraction = texture(skybox, sample_vector).rgb;
     // reflection
     sample_vector = -reflect(view_dir, normal);
     vec3 reflection = texture(skybox, sample_vector).rgb;
-    return reflection;
+    return refraction;
 }
 
 vec3 get_lighting(float shadow_factor, vec3 normal, vec3 texture_diff){

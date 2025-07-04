@@ -4,18 +4,252 @@ import pickle
 from pathlib import Path
 
 import pyglet
+from pyglet.event import EventDispatcher
 from pyglet.graphics.shader import ShaderProgram
 from pyglet.graphics import Group, Batch
-from pyglet.graphics.vertexdomain import IndexedVertexList
+from pyglet.graphics.vertexdomain import IndexedVertexList, VertexList
 from pyglet.image import Texture
 from pyglet.gl import *
-from pyglet.math import Vec3, Mat4
+from pyglet.math import Vec3, Mat4, Vec4
 from pyglet.model import Model
 from typing import Sequence
+from concurrent.futures import ThreadPoolExecutor
+executor = ThreadPoolExecutor()
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def bake_transform_data(positions, normals, tangents, bitangents, model_matrix):
+    """
+    Off-thread transformation function.
+    """
+    # def freeze_async(self):
+    #     # somewhere in the rood of the code
+    #     Mesh.register_event_type('on_rebuild')
+    #
+    #     """Background thread baking."""
+    #     if not self.dynamic:
+    #         return
+    #
+    #     # data to transform
+    #     positions = self.vertex_list.position[:]
+    #     normals = self.vertex_list.normal[:]
+    #     tangents = self.vertex_list.tangent[:]
+    #     bitangents = self.vertex_list.bitangent[:]
+    #
+    #     # not transformed data
+    #     tex_coords = self.vertex_list.tex_coord[:]
+    #     indices = self.vertex_list.indices[:]
+    #     colors = self.vertex_list.color[:]
+    #
+    #     # scheduling work
+    #     future = executor.submit(
+    #         bake_transform_data, positions, normals, tangents, bitangents, self.matrix
+    #     )
+    #
+    #     def on_done(fut):
+    #         transformed_positions, transformed_normals, transformed_tangents, transformed_bitangents = fut.result()
+    #
+    #         def rebuild(_):
+    #             self.vertex_list.delete()
+    #             self.vertex_list = get_vertex_list(
+    #                 {'indices': indices,
+    #                  'position': transformed_positions,
+    #                  'color': colors,
+    #                  'tex_coord': tex_coords,
+    #                  'normal': transformed_normals,
+    #                  'tangent': transformed_tangents,
+    #                  'bitangent': transformed_bitangents},
+    #                 self._program,
+    #                 self._batch,
+    #                 self._parent_group
+    #             )
+    #
+    #             self.dynamic = False
+    #             self.matrix = Mat4()
+    #
+    #         # post an event to the pyglet event loop to run in main thread
+    #         pyglet.app.platform_event_loop.post_event(self, 'on_rebuild', rebuild)
+    #
+    #     # when calculation is finished, call on_done
+    #     future.add_done_callback(on_done)
+    #
+    # def on_rebuild(self, rebuild_callback):
+    #     """Called in main thread to finish rebuild."""
+    #     rebuild_callback(None)
+
+    # Normal matrix
+    normal_matrix = model_matrix.__invert__().transpose()
+
+    transformed_positions = []
+    transformed_normals = []
+    transformed_tangents = []
+    transformed_bitangents = []
+
+    for i in range(0, len(positions), 3):
+        v = Vec4(*positions[i:i+3], 1)
+        n = Vec4(*normals[i:i+3], 0)
+        t = Vec4(*tangents[i:i+3], 0)
+        b = Vec4(*bitangents[i:i+3], 0)
+
+        vp = model_matrix @ v
+        np = normal_matrix @ n
+        tp = normal_matrix @ t
+        bp = normal_matrix @ b
+
+        transformed_positions.extend(vp[:3])
+        transformed_normals.extend(np[:3])
+        transformed_tangents.extend(tp[:3])
+        transformed_bitangents.extend(bp[:3])
+
+    return transformed_positions, transformed_normals, transformed_tangents, transformed_bitangents
+
+
+class Mesh:
+    def __init__(
+            self,
+            data: dict,
+            program: ShaderProgram,
+            batch: Batch,
+            group: Group | None = None,
+            dynamic=False
+    ):
+        """
+        A single set of vertex data, with its own transformation and optional group for textures/materials.
+        Provides freeze() and unfreeze() optimization methods to make mesh static or dynamic in the scene on demand.
+
+        :param data: A dictionary of prepared vertex data for VertexListIndexed instance creation.
+                     Expected necessary key names: 'indices', 'position', 'normal', 'tangent', 'bitangent'.
+        :param program: A ShaderProgram to attach vertex list to. Declared attributes must match key names.
+        :param batch: A pyglet.graphics.Batch() that this vertex list belongs to.
+        :param group: Optional Group slot, for example to pass textures and/or materials
+        :param dynamic: Set this flag to True if you expect your object to be updated a lot.
+                        Can be changed at any time through freeze(), unfreeze().
+
+        TODO: "dynamic" as a property instead of two methods?
+        TODO: inefficient freeze(), a lot of Vec4s, adjusted transform_model_data() should work with dict directly.
+        TODO: position, rotation... params for automatic matrix generation? Passed update() method to call before draw?
+        """
+
+        self._data = data if dynamic else None
+        self._program = program
+        self._batch = batch
+        self._parent_group = group
+        self._dynamic_group = DynamicRenderGroup(
+            self, self._program, order=self._parent_group.order, parent=self._parent_group
+        )
+        self._group = self._dynamic_group if dynamic else self._parent_group
+        self._dynamic = dynamic
+        self._vertex_list = get_vertex_list(data, self._program, self._batch, self._group)
+
+        self.matrix = Mat4()
+
+    def freeze(self):
+        """
+        Bake current transformation into the vertex data, making 3D object static in the scene.
+        This eliminates need for shader uniform update on every frame, but requires high one-time CPU work.
+        Static meshes can be made dynamic or static again on demand with Mesh.unfreeze().
+        """
+        if not self._dynamic:
+            return
+
+        transform_matrix = self.matrix
+        adjusted_transform_matrix = self.matrix.__invert__().transpose()
+
+        transformed_positions = []
+        transformed_normals = []
+        transformed_tangents = []
+        transformed_bitangents = []
+
+        # Transform each vertex position
+        for i in range(0, len(self._data['position']), 3):
+            vertex = Vec4(*self._data['position'][i:i + 3], 1)
+            normal = Vec4(*self._data['normal'][i:i + 3], 0)
+            tangent = Vec4(*self._data['tangent'][i:i + 3], 0)
+            bitangent = Vec4(*self._data['bitangent'][i:i + 3], 0)
+
+            new_position = transform_matrix @ vertex
+            new_normal = adjusted_transform_matrix @ normal
+            new_tangent = adjusted_transform_matrix @ tangent
+            new_bitangent = adjusted_transform_matrix @ bitangent
+
+            transformed_positions.extend(new_position[:3])
+            transformed_normals.extend(new_normal[:3])
+            transformed_tangents.extend(new_tangent[:3])
+            transformed_bitangents.extend(new_bitangent[:3])
+
+        self._data.update({
+            'position': transformed_positions,
+            'normal': transformed_normals,
+            'tangent': transformed_tangents,
+            'bitangent': transformed_bitangents
+        })
+
+        self._vertex_list.delete()  # free gpu memory
+        self._group = self._parent_group
+
+        self._vertex_list = get_vertex_list(
+            self._data,
+            self._program,
+            self._batch,
+            self._group,
+        )
+
+        self._dynamic = False
+        self._data = None  # free system memory
+        self.matrix = Mat4()
+
+    def unfreeze(self):
+        """
+        Make mesh dynamic again, re-assigning the group that updates mesh matrix to shader before every draw call.
+        Simply set new Mesh.matrix in on_draw() to see changes applied.
+        """
+        if self._dynamic:
+            return
+
+        self._data = self._get_vertex_data()
+        self._vertex_list.delete()
+        self._group = self._dynamic_group
+
+        self._vertex_list = get_vertex_list(self._data, self._program, self._batch, self._group)
+        self._dynamic = True
+
+    def _get_vertex_data(self) -> dict:
+        """Extract vertex data from the vertex list and return as a dictionary."""
+        data = {}
+        for name in self._vertex_list.domain.attribute_names:
+            if 'instance_data' not in name:
+                data[name] = getattr(self._vertex_list, name)[:]
+        data['indices'] = self._vertex_list.indices[:]
+        return data
+
+
+class DynamicRenderGroup(Group):
+    def __init__(self, mesh: Mesh, program: ShaderProgram, order=0, parent: Group = None):
+        super().__init__(order, parent)
+        self.program = program
+        self.mesh = mesh
+
+    def set_state(self) -> None:
+        self.program['rendering_dynamic_object'] = True
+        self.program['model_precalc'] = self.mesh.matrix
+
+    def unset_state(self) -> None:
+        self.program['rendering_dynamic_object'] = False
+
+    def __hash__(self):
+        return hash((self.program, self.order, self.parent))
+
+    def __eq__(self, other: "DynamicRenderGroup"):
+        return (
+                self.__class__ == other.__class__ and
+                self.mesh == other.mesh and
+                self.program == other.program and
+                self.parent == other.parent and
+                self.order == other.order
+        )
 
 
 class Plane(Model):
@@ -31,6 +265,7 @@ class Plane(Model):
             centered=False,
             color=(1.0, 1.0, 1.0, 1.0)
     ):
+        self.program = program
         self.position = position
         self.length, self.width = length, width
         self.centered = centered
@@ -51,8 +286,10 @@ class Plane(Model):
             'bitangent': bitangents
         }
 
-        vertex_list = get_vertex_list(self.data, program, batch, group)
-        super().__init__([vertex_list], [group], batch)
+        self.group = DynamicRenderGroup(self, self.program, parent=group)
+
+        vertex_list = get_vertex_list(self.data, program, batch, self.group)
+        super().__init__([vertex_list], [self.group], batch)
 
     def _get_vertices(self) -> tuple:
         l, w = self.length, self.width
@@ -181,82 +418,82 @@ class Cuboid(Model):
         return tex_coords
 
 
-class DynamicModel:
-    def __init__(
-            self,
-            batch: Batch,
-            program: ShaderProgram,
-            texture_group: Group,
-            model_data: dict,
-            position=Vec3(0, 0, 0),
-            rotation: float = 0.0,
-            rotation_dir=Vec3(0, 1, 0),
-            scale=Vec3(1, 1, 1),
-            origin=Vec3(0, 0, 0),
-            transform_on_gpu=False
-    ):
-        self.batch = batch
-        self.program = program
-        self.texture_group = texture_group
-        self.model_data = model_data
-        self.position = position
-        self.rotation = rotation
-        self.rotation_dir = rotation_dir
-        self.scale = scale
-        self.origin = origin
-
-        self.render_group = DynamicRenderGroup(
-            self, self.program, parent=self.texture_group, transform_on_gpu=transform_on_gpu
-        )
-
-        self.vertex_list = get_vertex_list(self.model_data, self.program, self.batch, self.render_group)
-
-
-class DynamicRenderGroup(Group):
-    def __init__(
-            self,
-            model: DynamicModel,
-            program: ShaderProgram,
-            order=0,
-            parent: Group = None,
-            transform_on_gpu=False
-    ):
-        """
-        Dynamically transform model on every frame.
-        Model matrix can be calculated on the CPU or GPU (if transform_on_gpu=True).
-        TODO: UBO!
-        """
-        super(DynamicRenderGroup, self).__init__(order, parent)
-        self.model = model
-        self.program = program
-        self.transform_on_gpu = transform_on_gpu
-
-    def set_state(self) -> None:
-        self.program['rendering_dynamic_object'] = True
-        if self.transform_on_gpu:
-            self.program['transform_on_gpu'] = True
-            self.program['model_position'] = self.model.position
-            self.program['model_rotation'] = Vec3(0, self.model.rotation, 0)
-            self.program['model_scale'] = self.model.scale
-        else:
-            model_matrix = get_model_matrix(
-                self.model.position, self.model.rotation, self.model.rotation_dir, self.model.scale, self.model.origin
-            )
-            self.program['model_precalc'] = model_matrix
-
-    def unset_state(self) -> None:
-        self.program['transform_on_gpu'] = False
-        self.program['rendering_dynamic_object'] = False
-
-    def __eq__(self, other: Group):
-        """ Normally every dynamic object will have unique transformation,
-        But eq could be useful for grouping objects that move together,
-        ex. passengers inside a bus.
-        """
-        return False
-
-    def __hash__(self):
-        return hash((self.order, self.parent, self.program, self.model, self.transform_on_gpu))
+# class DynamicModel:
+#     def __init__(
+#             self,
+#             batch: Batch,
+#             program: ShaderProgram,
+#             texture_group: Group,
+#             model_data: dict,
+#             position=Vec3(0, 0, 0),
+#             rotation: float = 0.0,
+#             rotation_dir=Vec3(0, 1, 0),
+#             scale=Vec3(1, 1, 1),
+#             origin=Vec3(0, 0, 0),
+#             transform_on_gpu=False
+#     ):
+#         self.batch = batch
+#         self.program = program
+#         self.texture_group = texture_group
+#         self.model_data = model_data
+#         self.position = position
+#         self.rotation = rotation
+#         self.rotation_dir = rotation_dir
+#         self.scale = scale
+#         self.origin = origin
+#
+#         self.render_group = DynamicRenderGroup(
+#             self, self.program, parent=self.texture_group, transform_on_gpu=transform_on_gpu
+#         )
+#
+#         self.vertex_list = get_vertex_list(self.model_data, self.program, self.batch, self.render_group)
+#
+#
+# class DynamicRenderGroup(Group):
+#     def __init__(
+#             self,
+#             model: DynamicModel,
+#             program: ShaderProgram,
+#             order=0,
+#             parent: Group = None,
+#             transform_on_gpu=False
+#     ):
+#         """
+#         Dynamically transform model on every frame.
+#         Model matrix can be calculated on the CPU or GPU (if transform_on_gpu=True).
+#         TODO: UBO!
+#         """
+#         super(DynamicRenderGroup, self).__init__(order, parent)
+#         self.model = model
+#         self.program = program
+#         self.transform_on_gpu = transform_on_gpu
+#
+#     def set_state(self) -> None:
+#         self.program['rendering_dynamic_object'] = True
+#         if self.transform_on_gpu:
+#             self.program['transform_on_gpu'] = True
+#             self.program['model_position'] = self.model.position
+#             self.program['model_rotation'] = Vec3(0, self.model.rotation, 0)
+#             self.program['model_scale'] = self.model.scale
+#         else:
+#             model_matrix = get_model_matrix(
+#                 self.model.position, self.model.rotation, self.model.rotation_dir, self.model.scale, self.model.origin
+#             )
+#             self.program['model_precalc'] = model_matrix
+#
+#     def unset_state(self) -> None:
+#         self.program['transform_on_gpu'] = False
+#         self.program['rendering_dynamic_object'] = False
+#
+#     def __eq__(self, other: Group):
+#         """ Normally every dynamic object will have unique transformation,
+#         But eq could be useful for grouping objects that move together,
+#         ex. passengers inside a bus.
+#         """
+#         return False
+#
+#     def __hash__(self):
+#         return hash((self.order, self.parent, self.program, self.model, self.transform_on_gpu))
 
 
 class BlendGroup(Group):
