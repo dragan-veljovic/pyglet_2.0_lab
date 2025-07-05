@@ -12,6 +12,7 @@ settings = {
     'config': get_config()
 }
 
+
 class App(pyglet.window.Window):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -46,11 +47,19 @@ class App(pyglet.window.Window):
             program=self.program, parent=blend_group
         )
 
-        self.plane = Plane(self.program, self.batch, texture_group, length=2000, width=1500, centered=True, color=(0.75, 0, 0, 1))
+        self.plane = GridMesh(self.program, self.batch, 1000, 1000, columns=100, rows=100, group=texture_group)
+
+        self.cube = Cuboid(self.program, self.batch, texture_group, position=Vec3(0, 1000, 0), size=(300, 300, 300))
 
         # loading OBJ model procedure
         model_data = load_obj_model('res/model/vessel.obj')
-        self.mesh = Mesh(transform_model_data(model_data, tex_scale=4), self.program, self.batch, texture_group, dynamic=True)
+        self.meshes = [Mesh(
+            transform_model_data(model_data.copy(), tex_scale=4, scale=0.5, position=(i * 400, 0, 0)),
+            self.program, self.batch, texture_group, dynamic=True)
+            for i in range(3)]
+
+        self.mesh_x = 0.0
+        self.mesh_y = 0.0
 
         # self.program['rendering_dynamic_object'] = True
         self.program['shadow_mapping'] = False
@@ -63,11 +72,14 @@ class App(pyglet.window.Window):
         if self.run:
             self.time = self.clock.time() - self.start_time
             self.plane.matrix = get_model_matrix(Vec3(0, 0, 0), self.time*0.1, rotation_dir=Vec3(0, 1, 0).normalize())
+            self.cube.matrix = self.plane.matrix
+
+            #self.mesh.matrix = pyglet.math.Mat4.from_rotation(-math.sin(self.time), Vec3(0, 1, 0)) @ Mat4.from_scale(Vec3(1, 1 + 0.5*math.sin(self.time), 1))
+
             self.program['refractive_index'] = 1.52 + 0.5 * math.cos(self.time)
 
-            self.mesh.matrix = pyglet.math.Mat4.from_rotation(-math.sin(self.time), Vec3(0, 1, 0)) @ Mat4.from_scale(Vec3(1, 1 + 0.5*math.sin(self.time), 1))
-
         self.program['view_position'] = self.camera.position
+        #self.program['time'] = self.time*0.1
         self.clear()
 
         if self.wireframe:
@@ -105,10 +117,18 @@ class App(pyglet.window.Window):
             case pyglet.window.key.B:
                 self.draw_skybox = not self.draw_skybox
             case pyglet.window.key.K:
-                self.mesh.freeze()
+                for mesh in self.meshes:
+                    mesh.freeze()
             case pyglet.window.key.J:
-                self.mesh.unfreeze()
+                for mesh in self.meshes:
+                    mesh.unfreeze()
 
+    def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
+        if buttons == pyglet.window.mouse.LEFT:
+            self.mesh_x += dx
+            self.mesh_y += dy
+            for mesh in self.meshes:
+                mesh.matrix = Mat4.from_translation(Vec3(self.mesh_x, 0, -self.mesh_y))
 
 if __name__ == '__main__':
     app = start_app(App, settings)

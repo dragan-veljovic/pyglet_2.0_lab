@@ -2,17 +2,13 @@ import hashlib
 import math
 import pickle
 from pathlib import Path
-
-import pyglet
-from pyglet.event import EventDispatcher
 from pyglet.graphics.shader import ShaderProgram
 from pyglet.graphics import Group, Batch
 from pyglet.graphics.vertexdomain import IndexedVertexList, VertexList
 from pyglet.image import Texture
 from pyglet.gl import *
 from pyglet.math import Vec3, Mat4, Vec4
-from pyglet.model import Model
-from typing import Sequence
+
 from concurrent.futures import ThreadPoolExecutor
 executor = ThreadPoolExecutor()
 
@@ -23,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def bake_transform_data(positions, normals, tangents, bitangents, model_matrix):
     """
-    Off-thread transformation function.
+    Off-thread transformation function. Paste in class!
     """
     # def freeze_async(self):
     #     # somewhere in the rood of the code
@@ -114,7 +110,7 @@ class Mesh:
             program: ShaderProgram,
             batch: Batch,
             group: Group | None = None,
-            dynamic=False
+            dynamic=True
     ):
         """
         A single set of vertex data, with its own transformation and optional group for textures/materials.
@@ -125,12 +121,13 @@ class Mesh:
         :param program: A ShaderProgram to attach vertex list to. Declared attributes must match key names.
         :param batch: A pyglet.graphics.Batch() that this vertex list belongs to.
         :param group: Optional Group slot, for example to pass textures and/or materials
-        :param dynamic: Set this flag to True if you expect your object to be updated a lot.
+        :param dynamic: Set this flag to False if you expect your object not to move  most of the time.
                         Can be changed at any time through freeze(), unfreeze().
 
         TODO: "dynamic" as a property instead of two methods?
         TODO: inefficient freeze(), a lot of Vec4s, adjusted transform_model_data() should work with dict directly.
         TODO: position, rotation... params for automatic matrix generation? Passed update() method to call before draw?
+        TODO: another group updating uniform (block?) of parameters, allowing for transformation on the GPU
         """
 
         self._data = data if dynamic else None
@@ -252,8 +249,10 @@ class DynamicRenderGroup(Group):
         )
 
 
-class Plane(Model):
-    """A rectangular plane with support for texturing and advanced lighting."""
+class Plane(Mesh):
+    """A rectangular plane with support for texturing and advanced lighting.
+    TODO: winding problem
+    """
     def __init__(
             self,
             program: ShaderProgram,
@@ -276,7 +275,7 @@ class Plane(Model):
         normals = calculate_normals(positions, indices)
         tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
 
-        self.data = {
+        data = {
             'indices': indices,
             'position': positions,
             'tex_coord': tex_coords,
@@ -286,10 +285,7 @@ class Plane(Model):
             'bitangent': bitangents
         }
 
-        self.group = DynamicRenderGroup(self, self.program, parent=group)
-
-        vertex_list = get_vertex_list(self.data, program, batch, self.group)
-        super().__init__([vertex_list], [self.group], batch)
+        super().__init__(data, program, batch, group, dynamic=True)
 
     def _get_vertices(self) -> tuple:
         l, w = self.length, self.width
@@ -311,7 +307,79 @@ class Plane(Model):
         return 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0
 
 
-class Cuboid(Model):
+class GridMesh(Mesh):
+    """Tessellated rectangular grid, split into triangles.
+    TODO: winding problem
+    """
+    def __init__(
+            self,
+            program: ShaderProgram,
+            batch: Batch,
+            length=300, width=200,
+            columns=6, rows=4,
+            group: Group | None = None,
+            position=Vec3(0, 0, 0),
+            color=(1.0, 1.0, 1.0, 1.0)
+        ):
+        self._length = length
+        self._width = width
+        self._pos = position
+        self._rows = rows
+        self._cols = columns
+        self._batch = batch
+        self._group = group
+        self._program = program
+
+        indices, positions, tex_coords = self._get_data()
+        normals = calculate_normals(positions, indices)
+        tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
+
+        data = {
+            'indices': indices,
+            'position': positions,
+            'tex_coord': tex_coords,
+            'color': color*(len(positions)//3),
+            'normal': normals,
+            'tangent': tangents,
+            'bitangent': bitangents
+        }
+
+        super().__init__(data, program, batch, group)
+
+    def _get_data(self) -> tuple[list, list, list]:
+        cols, rows = self._cols, self._rows
+        length, width = self._length, self._width
+        pos = self._pos
+        delta_x = length / (cols - 1)
+        delta_z = width / (rows - 1)
+
+        position = []
+        indices = []
+        tex_coord = []
+
+        for j in range(rows):
+            for i in range(cols):
+                x = pos.x + i * delta_x
+                y = pos.y
+                z = pos.z + j * delta_z
+                position.extend((x, y, z))
+
+                u = i * delta_x / length
+                v = j * delta_z / width
+                tex_coord.extend((u, v))
+
+                if i < cols - 1 and j < rows - 1:
+                    # Quad points A(0,0), B(1,0), C(0,1), D(1,1) form ABC and BDC triangles
+                    A = i + j * cols   # i + j*c
+                    B = A + 1               # i + 1 + j*c
+                    C = A + cols       # i + (j + 1)*c
+                    D = C + 1               # i + 1 + (j + 1)*c
+                    indices.extend((A, C, B, B, C, D))
+
+        return indices, position, tex_coord
+
+
+class Cuboid(Mesh):
     """A cube model with support for texturing and advanced lighting."""
     def __init__(
             self,
@@ -332,7 +400,7 @@ class Cuboid(Model):
         normals = calculate_normals(positions, indices)
         tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
 
-        self.data = {
+        data = {
             'indices': indices,
             'position': positions,
             'tex_coord': tex_coords,
@@ -342,8 +410,7 @@ class Cuboid(Model):
             'bitangent': bitangents
         }
 
-        vertex_list = get_vertex_list(self.data, program, batch, group)
-        super().__init__([vertex_list], [group], batch)
+        super().__init__(data, program, batch, group)
 
     def _get_vertices(self) -> tuple:
         x, y, z = self.position
@@ -589,7 +656,7 @@ class DiffuseNormalTextureGroup(Group):
         return hash((self.diffuse_target, self.diffuse_id, self.normal_target, self.normal_id, self.order, self.parent,
                      self.program))
 
-    def __eq__(self, other: Group):
+    def __eq__(self, other: "DiffuseNormalTextureGroup"):
         return (self.__class__ is other.__class__ and
                 self.normal_target == other.normal_target and
                 self.normal.id == other.normal_id and
@@ -1160,25 +1227,43 @@ def transform_model_data(
 
 
 def get_vertex_list(
-        model_data: dict,
+        data: dict,
         program: ShaderProgram,
         batch: Batch,
-        group: Group
+        group: Group | None = None,
+        mode=GL_TRIANGLES,
 ) -> IndexedVertexList:
-    """Convenience function, to get vertex list from the output of load/transform model functions."""
+    """
+    Convenience function, to get vertex list from a dictionary of vertex attributes (such as output of model loaders)
+    Data keys should match shader attribute names. Assumes all vertex data (except indices) are of 'float' type.
+    """
+    count, indices = None, None
+    kwargs = {}
+    for attr in data:
+        # identify position attribute
+        if 'pos' in attr.lower():
+            count = len(data[attr]) // 3
+        # identify indices attribute
+        if 'ind' in attr.lower() and isinstance(data[attr][0], int):
+            indices = data[attr]
+            continue
+
+        # prepare vertex attribute as key-word argument
+        kwargs[attr] = ('f', data[attr])
+
+    if count is None:
+        raise KeyError("Cannot identify vertex 'position' attribute. If present, use key name that contains 'pos'.")
+
+    if indices is None:
+        raise KeyError("Cannot identify 'indices' attribute. If present, use key name that contains 'ind'.")
 
     return program.vertex_list_indexed(
-        len(model_data['position'])//3,
-        pyglet.gl.GL_TRIANGLES,
-        model_data['indices'],
+        count,
+        mode,
+        indices,
         batch,
         group,
-        position=('f', model_data['position']),
-        normal=('f', model_data['normal']),
-        color=('f', model_data['color']),
-        tex_coord=('f', model_data['tex_coord']),
-        tangent=('f', model_data['tangent']),
-        bitangent=('f', model_data['bitangent'])
+        **kwargs
     )
 
 
