@@ -27,12 +27,15 @@ uniform WindowBlock {
 layout(std140) uniform LightBlock {
     vec3 position;
     vec3 target;
-    vec3 color;
+    vec4 color;
     bool directional;
     mat4 view;
     mat4 projection;
     float cutoff_start;
     float cutoff_end;
+    vec4 ambient;
+    vec4 diffuse;
+    vec4 specular;
 } light;
 
 uniform float time;

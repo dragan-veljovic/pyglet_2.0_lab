@@ -24,10 +24,10 @@ class Light:
     """
     def __init__(
             self,
-            ambient=0.25,
-            diffuse=0.75,
-            specular=1.0,
-            color=(1.0, 1.0, 1.0),
+            ambient=Vec4(1.0, 1.0, 1.0, 1.0),
+            diffuse=Vec4(1.0, 1.0, 1.0, 1.0),
+            specular=Vec4(1.0, 1.0, 1.0, 1.0),
+            color=(1.0, 1.0, 1.0, 1.0),
     ):
         self.ambient = ambient
         self.diffuse = diffuse

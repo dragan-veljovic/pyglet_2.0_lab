@@ -19,12 +19,15 @@ uniform samplerCube skybox;  // texture slot 5
 layout(std140) uniform LightBlock {
     vec3 position;
     vec3 target;
-    vec3 color;
+    vec4 color;
     bool directional;
     mat4 view;
     mat4 projection;
     float cutoff_start;
     float cutoff_end;
+    vec4 ambient;
+    vec4 diffuse;
+    vec4 specular;
 } light;
 
 // camera properties
@@ -32,18 +35,21 @@ uniform vec3 view_position;
 uniform float z_far = 5000.0;
 uniform float fade_length = 1000.0;
 
-// light properties
-//uniform vec3 light_position;
-//uniform vec3 light_target = vec3(0.0);
-//uniform bool light_directional = false;
-//uniform vec3 light_color = vec3(1.0);
 
 // material properties
-uniform float ambient_strength = 0.25;
-uniform float diffuse_strength = 0.50;
-uniform float specular_strength = 1.0;
-uniform float shininess = 128;
 uniform float refractive_index = 1.52;
+
+layout(std140) uniform MaterialBlock {
+    vec4 ambient;
+    vec4 diffuse;
+    vec4 specular;
+    vec4 emission;
+    float shininess;
+    bool env_mapping;
+    float env_map_strength;
+    float refractive_index;
+    float fresnel_power;
+} material;
 
 // rendering flags
 uniform bool shadow_mapping = true;
@@ -57,14 +63,12 @@ uniform bool environment_mapping = true;
 uniform bool fade = true;
 
 
-
 float get_fade_factor(){
     float fade_start = z_far - fade_length;
     float fade_end = z_far;
     float distance = length(frag_position - view_position);
     return clamp(1.0 - (distance - fade_start) / (fade_end - fade_start), 0.0, 1.0);
 }
-
 
 float get_shadow_factor() {
     // Perform perspective divide
@@ -111,48 +115,46 @@ vec3 get_TBN_transformed_normals(){
     return normal;
 }
 
-vec3 get_phong_lighting_factors(vec3 normal){
-    float ambient;
-    float diffuse;
-    float specular;
-
+void get_phong_lighting_factors(
+    vec3 normal,
+    out vec4 ambient,
+    out vec4 diffuse,
+    out vec4 specular
+){
     // light direction from current fragment
-    vec3 light_direction = light.directional ?
+    vec3 light_dir = light.directional ?
         normalize(light.position - light.target) : normalize(light.position - frag_position);
 
     // Ambient lighting
-    ambient = ambient_strength;
+    ambient = material.ambient * light.ambient;
 
     // check if fragment is outside of a spotlight's cutoff angle
-    float cos_theta = dot(light_direction, -normalize(light.target - light.position));
-
+    float cos_theta = dot(light_dir, -normalize(light.target - light.position));
     if (cos_theta < light.cutoff_end) {  // same as theta > cutoff
-        diffuse = 0.0;
-        specular = 0.0;
+        diffuse = vec4(0.0);
+        specular = vec4(0.0);
 
     } else {
-        // calcualte intensity adjustment for spotlight cutoff effect
+        // calcualte intensity adjustment for spotlight cutoff effect (disable for directional?)
         float epsilon = light.cutoff_start - light.cutoff_end;
         float intensity = clamp((cos_theta - light.cutoff_end) / epsilon, 0.0, 1.0);
 
         // Diffuse lighting
-        float diff = lighting_diffuse ? max(dot(light_direction, normal), 0.0) : 0.0;
-        diffuse = intensity * diffuse_strength * diff;
+        float diff = lighting_diffuse ? max(dot(light_dir, normal), 0.0) : 0.0;
+        diffuse = intensity * material.diffuse * light.diffuse * diff;
 
         // Specular lighting
         float spec;
         if (lighting_specular) {
             vec3 view_dir = normalize(view_position - frag_position);  // direction to viewer
-            vec3 reflect_dir = reflect(-light_direction, normal);  // reflection around normal
-            spec = pow(max(dot(view_dir, reflect_dir), 0.0), shininess);  // Specular factor
+            vec3 reflect_dir = reflect(-light_dir, normal);  // reflection around normal
+            spec = pow(max(dot(view_dir, reflect_dir), 0.0), material.shininess);  // Specular factor
         } else {
             spec = 0.0;
         }
-        specular = intensity * specular_strength * spec;
+        specular = intensity * material.specular * light.specular * spec;
     }
 
-    // Summarize and return result
-    return vec3(ambient, diffuse, specular);
 }
 
 vec3 get_environment_mapping(vec3 normal){
@@ -169,12 +171,10 @@ vec3 get_environment_mapping(vec3 normal){
 
 vec3 get_lighting(float shadow_factor, vec3 normal, vec3 texture_diff){
     // Custom function that applies all lighting factors
-    vec3 phong = get_phong_lighting_factors(normal);
-    float ambient = phong.x;
-    float diffuse = phong.y;
-    float specular = phong.z;
+    vec4 ambient, diffuse, specular;
+    get_phong_lighting_factors(normal, ambient, diffuse, specular);
     // specular not affected by object colors (only light color) is more realistic
-    return ((ambient + diffuse * shadow_factor) * texture_diff + specular * shadow_factor) * light.color;
+    return ((ambient.rgb + diffuse.rgb * shadow_factor) * texture_diff + specular.rgb * shadow_factor) * light.color.rgb;
 }
 
 
@@ -189,7 +189,7 @@ void main() {
     // Normal mapping
     vec3 normal = normal_mapping ? get_TBN_transformed_normals() : normalize(frag_normal);
     // Texturing
-    vec3 texture_diff = texturing ? get_diffuse_texture() : vec3(0);
+    vec3 texture_diff = texturing ? get_diffuse_texture() : vec3(0.0);
 
     // Environment mapping
     vec3 env_map = environment_mapping ? get_environment_mapping(normal) : vec3(0.0);

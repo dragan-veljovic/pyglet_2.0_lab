@@ -2,105 +2,22 @@ import hashlib
 import math
 import pickle
 from pathlib import Path
-from pyglet.graphics.shader import ShaderProgram
+from pyglet.graphics.shader import ShaderProgram, UniformBufferObject
 from pyglet.graphics import Group, Batch
 from pyglet.graphics.vertexdomain import IndexedVertexList, VertexList
 from pyglet.image import Texture
 from pyglet.gl import *
 from pyglet.math import Vec3, Mat4, Vec4
+from pyglet.graphics.shader import UniformBlock
 
 from concurrent.futures import ThreadPoolExecutor
+
 executor = ThreadPoolExecutor()
 
 import logging
+
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
-
-
-def bake_transform_data(positions, normals, tangents, bitangents, model_matrix):
-    """
-    Off-thread transformation function. Paste in class!
-    """
-    # def freeze_async(self):
-    #     # somewhere in the rood of the code
-    #     Mesh.register_event_type('on_rebuild')
-    #
-    #     """Background thread baking."""
-    #     if not self.dynamic:
-    #         return
-    #
-    #     # data to transform
-    #     positions = self.vertex_list.position[:]
-    #     normals = self.vertex_list.normal[:]
-    #     tangents = self.vertex_list.tangent[:]
-    #     bitangents = self.vertex_list.bitangent[:]
-    #
-    #     # not transformed data
-    #     tex_coords = self.vertex_list.tex_coord[:]
-    #     indices = self.vertex_list.indices[:]
-    #     colors = self.vertex_list.color[:]
-    #
-    #     # scheduling work
-    #     future = executor.submit(
-    #         bake_transform_data, positions, normals, tangents, bitangents, self.matrix
-    #     )
-    #
-    #     def on_done(fut):
-    #         transformed_positions, transformed_normals, transformed_tangents, transformed_bitangents = fut.result()
-    #
-    #         def rebuild(_):
-    #             self.vertex_list.delete()
-    #             self.vertex_list = get_vertex_list(
-    #                 {'indices': indices,
-    #                  'position': transformed_positions,
-    #                  'color': colors,
-    #                  'tex_coord': tex_coords,
-    #                  'normal': transformed_normals,
-    #                  'tangent': transformed_tangents,
-    #                  'bitangent': transformed_bitangents},
-    #                 self._program,
-    #                 self._batch,
-    #                 self._parent_group
-    #             )
-    #
-    #             self.dynamic = False
-    #             self.matrix = Mat4()
-    #
-    #         # post an event to the pyglet event loop to run in main thread
-    #         pyglet.app.platform_event_loop.post_event(self, 'on_rebuild', rebuild)
-    #
-    #     # when calculation is finished, call on_done
-    #     future.add_done_callback(on_done)
-    #
-    # def on_rebuild(self, rebuild_callback):
-    #     """Called in main thread to finish rebuild."""
-    #     rebuild_callback(None)
-
-    # Normal matrix
-    normal_matrix = model_matrix.__invert__().transpose()
-
-    transformed_positions = []
-    transformed_normals = []
-    transformed_tangents = []
-    transformed_bitangents = []
-
-    for i in range(0, len(positions), 3):
-        v = Vec4(*positions[i:i+3], 1)
-        n = Vec4(*normals[i:i+3], 0)
-        t = Vec4(*tangents[i:i+3], 0)
-        b = Vec4(*bitangents[i:i+3], 0)
-
-        vp = model_matrix @ v
-        np = normal_matrix @ n
-        tp = normal_matrix @ t
-        bp = normal_matrix @ b
-
-        transformed_positions.extend(vp[:3])
-        transformed_normals.extend(np[:3])
-        transformed_tangents.extend(tp[:3])
-        transformed_bitangents.extend(bp[:3])
-
-    return transformed_positions, transformed_normals, transformed_tangents, transformed_bitangents
 
 
 class Mesh:
@@ -115,6 +32,7 @@ class Mesh:
         """
         A single set of vertex data, with its own transformation and optional group for textures/materials.
         Provides freeze() and unfreeze() optimization methods to make mesh static or dynamic in the scene on demand.
+        If Mesh is dynamic, set 'matrix' attribute to transform it.
 
         :param data: A dictionary of prepared vertex data for VertexListIndexed instance creation.
                      Expected necessary key names: 'indices', 'position', 'normal', 'tangent', 'bitangent'.
@@ -164,25 +82,30 @@ class Mesh:
         for i in range(0, len(self._data['position']), 3):
             vertex = Vec4(*self._data['position'][i:i + 3], 1)
             normal = Vec4(*self._data['normal'][i:i + 3], 0)
-            tangent = Vec4(*self._data['tangent'][i:i + 3], 0)
-            bitangent = Vec4(*self._data['bitangent'][i:i + 3], 0)
-
             new_position = transform_matrix @ vertex
             new_normal = adjusted_transform_matrix @ normal
-            new_tangent = adjusted_transform_matrix @ tangent
-            new_bitangent = adjusted_transform_matrix @ bitangent
-
             transformed_positions.extend(new_position[:3])
             transformed_normals.extend(new_normal[:3])
-            transformed_tangents.extend(new_tangent[:3])
-            transformed_bitangents.extend(new_bitangent[:3])
+
+            if 'tangent' in self._data:
+                tangent = Vec4(*self._data['tangent'][i:i + 3], 0)
+                bitangent = Vec4(*self._data['bitangent'][i:i + 3], 0)
+                new_tangent = adjusted_transform_matrix @ tangent
+                new_bitangent = adjusted_transform_matrix @ bitangent
+                transformed_tangents.extend(new_tangent[:3])
+                transformed_bitangents.extend(new_bitangent[:3])
 
         self._data.update({
             'position': transformed_positions,
             'normal': transformed_normals,
-            'tangent': transformed_tangents,
-            'bitangent': transformed_bitangents
+
         })
+
+        if 'tangent' in self._data:
+            self._data.update({
+                'tangent': transformed_tangents,
+                'bitangent': transformed_bitangents
+            })
 
         self._vertex_list.delete()  # free gpu memory
         self._group = self._parent_group
@@ -206,14 +129,14 @@ class Mesh:
         if self._dynamic:
             return
 
-        self._data = self._get_vertex_data()
+        self._data = self.get_vertex_data()
         self._vertex_list.delete()
         self._group = self._dynamic_group
 
         self._vertex_list = get_vertex_list(self._data, self._program, self._batch, self._group)
         self._dynamic = True
 
-    def _get_vertex_data(self) -> dict:
+    def get_vertex_data(self) -> dict:
         """Extract vertex data from the vertex list and return as a dictionary."""
         data = {}
         for name in self._vertex_list.domain.attribute_names:
@@ -223,36 +146,11 @@ class Mesh:
         return data
 
 
-class DynamicRenderGroup(Group):
-    def __init__(self, mesh: Mesh, program: ShaderProgram, order=0, parent: Group = None):
-        super().__init__(order, parent)
-        self.program = program
-        self.mesh = mesh
-
-    def set_state(self) -> None:
-        self.program['rendering_dynamic_object'] = True
-        self.program['model_precalc'] = self.mesh.matrix
-
-    def unset_state(self) -> None:
-        self.program['rendering_dynamic_object'] = False
-
-    def __hash__(self):
-        return hash((self.program, self.order, self.parent))
-
-    def __eq__(self, other: "DynamicRenderGroup"):
-        return (
-                self.__class__ == other.__class__ and
-                self.mesh == other.mesh and
-                self.program == other.program and
-                self.parent == other.parent and
-                self.order == other.order
-        )
-
-
 class Plane(Mesh):
     """A rectangular plane with support for texturing and advanced lighting.
     TODO: winding problem
     """
+
     def __init__(
             self,
             program: ShaderProgram,
@@ -269,9 +167,7 @@ class Plane(Mesh):
         self.length, self.width = length, width
         self.centered = centered
 
-        positions = self._get_vertices()
-        indices = self._get_indices()
-        tex_coords = self._get_tex_coords()
+        positions, indices, tex_coords = self._generate_vertex_data()
         normals = calculate_normals(positions, indices)
         tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
 
@@ -279,7 +175,7 @@ class Plane(Mesh):
             'indices': indices,
             'position': positions,
             'tex_coord': tex_coords,
-            'color': color * (len(positions)//3),
+            'color': color * (len(positions) // 3),
             'normal': normals,
             'tangent': tangents,
             'bitangent': bitangents
@@ -287,30 +183,121 @@ class Plane(Mesh):
 
         super().__init__(data, program, batch, group, dynamic=True)
 
-    def _get_vertices(self) -> tuple:
+    def _generate_vertex_data(self) -> tuple[tuple, tuple, tuple]:
         l, w = self.length, self.width
         if self.centered:
-            x, y, z = self.position.x - l/2, self.position.y, self.position.z - w/2
+            x, y, z = self.position.x - l / 2, self.position.y, self.position.z - w / 2
         else:
             x, y, z = self.position.x, self.position.y, self.position.z
-        return (
+        positions = (
             x, y, z,
             x + l, y, z,
             x + l, y, z + w,
             x, y, z + w
         )
+        indices = (0, 2, 1, 0, 3, 2)
+        tex_coords = (0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0)
 
-    def _get_indices(self):
-        return 0, 2, 1, 0, 3, 2
+        return positions, indices, tex_coords
 
-    def _get_tex_coords(self) -> tuple:
-        return 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0
+
+class Sphere(Mesh):
+    """A sphere model with support for texturing and advanced lighting."""
+
+    def __init__(
+            self,
+            program: ShaderProgram,
+            batch: Batch,
+            group: Group | None = None,
+            position=Vec3(0, 0, 0),
+            radius=50,
+            lat_segments=16,
+            lng_segments=32,
+            color=(1.0, 1.0, 1.0, 1.0)
+    ):
+        self.position = position
+        self.radius = radius
+        self.lat_segments = lat_segments
+        self.lng_segments = lng_segments
+
+        positions, indices, tex_coords = self._generate_vertex_data()
+
+        normals = calculate_normals(positions, indices)
+        tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
+
+        data = {
+            'indices': indices,
+            'position': positions,
+            'tex_coord': tex_coords,
+            'color': color * (len(positions) // 3),
+            'normal': normals,
+            'tangent': tangents,
+            'bitangent': bitangents
+        }
+
+        super().__init__(data, program, batch, group)
+
+    def _generate_vertex_data(self) -> tuple:
+        """Generate vertices, indices, and texture coordinates in a single pass."""
+        vertices = []
+        tex_coords = []
+        indices = []
+
+        x, y, z = self.position.x, self.position.y, self.position.z
+
+        # Generate vertices, texture coordinates, and indices in a single loop
+        for lat in range(self.lat_segments + 1):
+            # Latitude angle from 0 to π (top to bottom)
+            lat_angle = math.pi * lat / self.lat_segments
+            sin_lat = math.sin(lat_angle)
+            cos_lat = math.cos(lat_angle)
+            v = lat / self.lat_segments
+
+            for lng in range(self.lng_segments + 1):
+                # Longitude angle from 0 to 2π (around)
+                lng_angle = 2 * math.pi * lng / self.lng_segments
+                sin_lng = math.sin(lng_angle)
+                cos_lng = math.cos(lng_angle)
+
+                # Calculate vertex position
+                vertex_x = x + self.radius * sin_lat * cos_lng
+                vertex_y = y + self.radius * cos_lat
+                vertex_z = z + self.radius * sin_lat * sin_lng
+
+                vertices.extend([vertex_x, vertex_y, vertex_z])
+
+                # Calculate texture coordinates
+                u = min(lng / self.lng_segments, 1.0)
+                tex_coords.extend([u, v])
+
+                # Generate indices (skip last longitude segment and last latitude segment)
+                if lat < self.lat_segments and lng < self.lng_segments:
+                    # Current vertex and next vertex indices
+                    current = lat * (self.lng_segments + 1) + lng
+                    next_lng = lat * (self.lng_segments + 1) + lng + 1
+                    next_lat = (lat + 1) * (self.lng_segments + 1) + lng
+                    next_both = (lat + 1) * (self.lng_segments + 1) + lng + 1
+
+                    # Skip triangles at the poles to avoid degenerate triangles
+                    if lat == 0:
+                        # Top cap - only create one triangle per segment
+                        indices.extend([current, next_both, next_lat])
+                    elif lat == self.lat_segments - 1:
+                        # Bottom cap - only create one triangle per segment
+                        indices.extend([current, next_lng, next_both])
+                    else:
+                        # Middle sections - create two triangles per quad
+                        indices.extend([current, next_lng, next_both])
+                        indices.extend([current, next_both, next_lat])
+
+        return tuple(vertices), tuple(indices), tuple(tex_coords)
 
 
 class GridMesh(Mesh):
     """Tessellated rectangular grid, split into triangles.
     TODO: winding problem
     """
+
     def __init__(
             self,
             program: ShaderProgram,
@@ -320,7 +307,7 @@ class GridMesh(Mesh):
             group: Group | None = None,
             position=Vec3(0, 0, 0),
             color=(1.0, 1.0, 1.0, 1.0)
-        ):
+    ):
         self._length = length
         self._width = width
         self._pos = position
@@ -338,7 +325,7 @@ class GridMesh(Mesh):
             'indices': indices,
             'position': positions,
             'tex_coord': tex_coords,
-            'color': color*(len(positions)//3),
+            'color': color * (len(positions) // 3),
             'normal': normals,
             'tangent': tangents,
             'bitangent': bitangents
@@ -370,10 +357,10 @@ class GridMesh(Mesh):
 
                 if i < cols - 1 and j < rows - 1:
                     # Quad points A(0,0), B(1,0), C(0,1), D(1,1) form ABC and BDC triangles
-                    A = i + j * cols   # i + j*c
-                    B = A + 1               # i + 1 + j*c
-                    C = A + cols       # i + (j + 1)*c
-                    D = C + 1               # i + 1 + (j + 1)*c
+                    A = i + j * cols  # i + j*c
+                    B = A + 1  # i + 1 + j*c
+                    C = A + cols  # i + (j + 1)*c
+                    D = C + 1  # i + 1 + (j + 1)*c
                     indices.extend((A, C, B, B, C, D))
 
         return indices, position, tex_coord
@@ -381,6 +368,7 @@ class GridMesh(Mesh):
 
 class Cuboid(Mesh):
     """A cube model with support for texturing and advanced lighting."""
+
     def __init__(
             self,
             program: ShaderProgram,
@@ -485,6 +473,10 @@ class Cuboid(Mesh):
         return tex_coords
 
 
+
+
+
+
 # class DynamicModel:
 #     def __init__(
 #             self,
@@ -563,13 +555,39 @@ class Cuboid(Mesh):
 #         return hash((self.order, self.parent, self.program, self.model, self.transform_on_gpu))
 
 
+class DynamicRenderGroup(Group):
+    def __init__(self, mesh: Mesh, program: ShaderProgram, order=0, parent: Group = None):
+        super().__init__(order, parent)
+        self.program = program
+        self.mesh = mesh
+
+    def set_state(self) -> None:
+        self.program['rendering_dynamic_object'] = True
+        self.program['model_precalc'] = self.mesh.matrix
+
+    def unset_state(self) -> None:
+        self.program['rendering_dynamic_object'] = False
+
+    def __hash__(self):
+        return hash((self.program, self.order, self.parent))
+
+    def __eq__(self, other: "DynamicRenderGroup"):
+        return (
+                self.__class__ == other.__class__ and
+                self.mesh == other.mesh and
+                self.program == other.program and
+                self.parent == other.parent and
+                self.order == other.order
+        )
+
+
 class BlendGroup(Group):
     def __init__(
-        self,
-        blend_src: int = GL_SRC_ALPHA,
-        blend_dest: int = GL_ONE_MINUS_SRC_ALPHA,
-        order=0,
-        parent: Group | None = None
+            self,
+            blend_src: int = GL_SRC_ALPHA,
+            blend_dest: int = GL_ONE_MINUS_SRC_ALPHA,
+            order=0,
+            parent: Group | None = None
     ):
         super().__init__(order, parent)
         self.blend_src = blend_src
@@ -585,7 +603,7 @@ class BlendGroup(Group):
     def __hash__(self):
         return hash((self.blend_src, self.blend_dest, self.order, self.parent))
 
-    def __eq__(self, other):
+    def __eq__(self, other: 'BlendGroup'):
         return (self.__class__ == other.__class__ and
                 self.blend_src == other.blend_src and
                 self.blend_dest == other.blend_dest and
@@ -683,18 +701,60 @@ class DiffuseNormalTextureGroup(Group):
         return self.diffuse.target if self.diffuse else None
 
 
+class MaterialGroup(Group):
+    def __init__(
+            self,
+            ubo: UniformBufferObject,
+            ambient=Vec4(0.25, 0.25, 0.25, 1.0),
+            diffuse=Vec4(0.5, 0.5, 0.5, 1.0),
+            specular=Vec4(0.75, 0.75, 0.75, 1.0),
+            emission=Vec4(0.0, 0.0, 0.0, 1.0),
+            shininess=32,
+            env_mapping=False,
+            env_map_strength=0.5,
+            refractive_index=1.0,
+            fresnel_power=5.0,
+            order=0,
+            parent=None,
+    ):
+        super().__init__(order, parent)
+        self.ubo = ubo
+        self.ambient = ambient
+        self.diffuse = diffuse
+        self.specular = specular
+        self.emission = emission
+        self.shininess = shininess
+        self.env_mapping = env_mapping
+        self.env_map_strength = env_map_strength
+        self.refractive_index = refractive_index
+        self.fresnel_power = fresnel_power
+
+        self.params = ['ambient', 'diffuse', 'specular', 'emission', 'shininess',
+                       'env_mapping', 'refractive_index', 'fresnel_power']
+
+    def update_ubo(self):
+        with self.ubo as ubo:
+            for param in self.params:
+                setattr(ubo, param, getattr(self, param))
+
+    def set_state(self) -> None:
+        self.update_ubo()
+
+
 def get_model_matrix(
-        position: Vec3,
-        rotation_angle: float,
+        position: Vec3 = None,
+        rotation_angle: float = None,
         rotation_dir=Vec3(0, 1, 0),
-        scale=Vec3(1, 1, 1),
+        scale: Vec3 = None,
         origin: Vec3 | None = None,
 ) -> Mat4:
     """Create model matrix from given parameters, using pyglet.math builtins."""
 
-    rotation = Mat4.from_rotation(rotation_angle, rotation_dir)
-    scale = Mat4.from_scale(scale)
-    translation = Mat4.from_translation(position)
+    identity = Mat4()
+
+    rotation = Mat4.from_rotation(rotation_angle, rotation_dir) if rotation_angle else identity
+    scale = Mat4.from_scale(scale) if scale is not None else identity
+    translation = Mat4.from_translation(position) if position is not None else identity
 
     if origin:
         translate_to_origin = Mat4.from_translation(-origin)
@@ -740,6 +800,44 @@ def get_model_matrix_np(translation, rotation_angle, rotation_axis, scale, origi
     # Final model matrix: T_back * T_position * R * T_origin * S
     model_matrix = T_back @ T_position @ R @ T_origin @ S
     return Mat4(*model_matrix.T.flatten())
+
+
+def load_mesh(
+        path: str,
+        program: ShaderProgram,
+        batch: Batch,
+        group: Group,
+        dynamic=True,
+        add_tangents=True,
+        position: tuple[float, float, float] = None,
+        rotation: tuple[float, float, float] = None,
+        scale: float = None,
+        tex_scale: float = None,
+        color: tuple[float, float, float, float] = None,
+) -> Mesh:
+    """
+    Convenience method that loads and transforms OBJ data, then creates and returns Mesh instance.
+    Useful when loaded data is used for single 3D Mesh. If loaded data is to be reused, manually call methods:
+    data = transform_model_data(load_obj_model, *args)
+    m1 = Mesh(data, *args)
+    m2 = Mesh(data, *args) ...
+    """
+    # loading OBJ data
+    data = load_obj_model(path)
+
+    # transforming data if any transformation arguments are passed
+    all_kwargs = locals()
+    transform_param_names = ('position', 'rotation', 'scale', 'tex_scale', 'color')
+    active_kwargs = {k: all_kwargs[k] for k in transform_param_names if all_kwargs[k] is not None}
+
+    if active_kwargs:
+        data = transform_model_data(data, add_tangents=add_tangents, **active_kwargs)
+    else:
+        # no transformation, but add tangents
+        if add_tangents:
+            add_tangents_bitangents(data)
+
+    return Mesh(data, program, batch, group, dynamic)
 
 
 def load_obj_model(filename) -> dict:
@@ -855,14 +953,14 @@ def load_obj_model(filename) -> dict:
 
     # If no normals were provided in the file, calculate them
     if not final_normals and final_positions:
-       final_normals = calculate_normals(final_positions, indices)
+        final_normals = calculate_normals(final_positions, indices)
 
     # If no texture coordinates were provided, create default ones
     if not final_tex_coords and final_positions:
         for _ in range(len(final_positions) // 3):
             final_tex_coords.extend([0.0, 0.0])
 
-    count = len(final_positions)//3
+    count = len(final_positions) // 3
 
     return {
         'position': final_positions,
@@ -937,7 +1035,7 @@ def calculate_normals(final_positions, indices) -> list:
     return final_normals
 
 
-def calculate_tangents(positions, normals, tex_coords, indices):
+def calculate_tangents(positions, normals, tex_coords, indices) -> tuple[list, list]:
     """
     Calculate tangent and bitangent vectors for normal mapping from passed vertex data.
 
@@ -1052,6 +1150,7 @@ def create_transformation_matrix(position=(0, 0, 0), rotation=(0, 0, 0), scale=1
 
     Returns:
         list: 4x4 transformation matrix as a flat list in column-major order
+        TODO: Rework for efficiency, add origin
     """
     # Convert rotation from degrees to radians
     rx, ry, rz = [math.radians(angle) for angle in rotation]
@@ -1099,6 +1198,58 @@ def create_transformation_matrix(position=(0, 0, 0), rotation=(0, 0, 0), scale=1
     ]
 
     return matrix
+
+
+def transform_model_data(
+        data: dict,
+        position=(0, 0, 0),
+        rotation=(0, 0, 0),
+        scale=1.0,
+        tex_scale: float = None,
+        color=(1.0, 1.0, 1.0, 1.0),
+        add_tangents=True
+) -> dict:
+    """
+    Calculates tangents, bitangents, normals (if not present)
+    and applies transformations to loaded OBJ model data.
+    Returns a dictionary of prepared data, ready to use with IndexedVertexList abstraction.
+    """
+
+    # Create transformation matrix
+    transform_matrix = create_transformation_matrix(position, rotation, scale)
+    model_data = data.copy()
+
+    # Apply transformations to vertex positions and normals
+    transformed_positions = []
+    transformed_normals = []
+    original_positions = model_data['position']
+    original_normals = model_data['normal']
+
+    # Transform each vertex position
+    for i in range(0, len(original_positions), 3):
+        vertex = original_positions[i:i + 3]
+        transformed = transform_vertex(vertex, transform_matrix)
+        transformed_positions.extend(transformed)
+        normal = original_normals[i:i + 3]
+        transformed = transform_normal(normal, transform_matrix)
+        transformed_normals.extend(transformed)
+
+    count = len(transformed_positions) // 3
+
+    model_data.update({
+        'position': transformed_positions,
+        'normal': transformed_normals,
+        'color': color * count,
+    })
+
+    # Recalculate tangents and bitangents using the transformed positions and normals
+    if add_tangents:
+        add_tangents_bitangents(model_data)
+
+    if tex_scale:
+        model_data['tex_coord'] = [element * tex_scale for element in model_data['tex_coord']]
+
+    return model_data
 
 
 def matrix_multiply(a, b):
@@ -1167,63 +1318,22 @@ def transform_normal(normal, matrix):
     return [0, 0, 1]  # Default fallback
 
 
-def transform_model_data(
-        model_data: dict,
-        position=(0, 0, 0),
-        rotation=(0, 0, 0),
-        scale=1.0,
-        tex_scale: float = None,
-        color=(1.0, 1.0, 1.0, 1.0)
-) -> dict:
-    """
-    Calculates tangents, bitangents, normals (if not present)
-    and applies transformations to loaded OBJ model data.
-    Returns a dictionary of prepared data, ready to use with IndexedVertexList abstraction.
-    """
 
-    # Create transformation matrix
-    transform_matrix = create_transformation_matrix(position, rotation, scale)
 
-    # Apply transformations to vertex positions and normals
-    transformed_positions = []
-    transformed_normals = []
-    original_positions = model_data['position']
-    original_normals = model_data['normal']
 
-    # Transform each vertex position
-    for i in range(0, len(original_positions), 3):
-        vertex = original_positions[i:i + 3]
-        transformed = transform_vertex(vertex, transform_matrix)
-        transformed_positions.extend(transformed)
-
-    # Transform each normal
-    for i in range(0, len(original_normals), 3):
-        normal = original_normals[i:i + 3]
-        transformed = transform_normal(normal, transform_matrix)
-        transformed_normals.extend(transformed)
-
-    # Recalculate tangents and bitangents using the transformed positions and normals
+def add_tangents_bitangents(data: dict) -> None:
+    """Append existing data dictionary with tangent and bitanget vertex data."""
     tangents, bitangents = calculate_tangents(
-        transformed_positions,
-        transformed_normals,
-        model_data['tex_coord'],
-        model_data['indices']
+        data['position'],
+        data['normal'],
+        data['tex_coord'],
+        data['indices']
     )
 
-    count = len(transformed_positions) // 3
-
-    if tex_scale:
-        model_data['tex_coord'] = [element * tex_scale for element in model_data['tex_coord']]
-
-    model_data.update({
-        'position': transformed_positions,
-        'normal': transformed_normals,
-        'color': color * count,
+    data.update({
         'tangent': tangents,
         'bitangent': bitangents
     })
-
-    return model_data
 
 
 def get_vertex_list(
