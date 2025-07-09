@@ -19,12 +19,16 @@ class App(pyglet.window.Window):
         pyglet.resource.path.append('res')
         pyglet.resource.reindex()
         self.batch = pyglet.graphics.Batch()
+
         self.program = ShaderProgram(
             pyglet.resource.shader('res/shaders/dev.vert', 'vertex'),
             pyglet.resource.shader('res/shaders/dev.frag', 'fragment')
         )
-        self.camera = Camera3D(self, z_far=100_000, speed=5)
+
+        self.camera = Camera3D(self, z_far=10000, speed=5)
         self.program['z_far'] = self.camera.z_far
+        self.program['fade_length'] = 2000
+
         self.time = 0.0
         self.clock = pyglet.clock.Clock()
         self.start_time = self.clock.time()
@@ -47,33 +51,25 @@ class App(pyglet.window.Window):
             program=self.program, parent=blend_group
         )
 
-        mars_group = DiffuseNormalTextureGroup(
-            diffuse=pyglet.image.load('res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg').get_texture(),
-            normal=pyglet.image.load(
-               'res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_nor_gl_2k.jpg').get_texture(),
-            program=self.program, parent=blend_group
-        )
-
         self.material_ubo = self.program.uniform_blocks['MaterialBlock'].create_ubo()
+        material_group = MaterialGroup(self.material_ubo, parent=texture_group, shininess=32, env_mapping_mode=0, specular=(0.0, 0.0, 0.0, 1.0), bump_strength=0.5)
 
-        material_group = MaterialGroup(self.material_ubo, parent=texture_group, shininess=32, specular=Vec4(0.5, 0.5, 0.5, 1.0))
+        material_group2 = MaterialGroup(self.material_ubo, parent=texture_group, shininess=256, env_mapping_mode=1, bump_strength=0.25)
+        """TODO individual rendering flags per material?"""
 
-        material_group2 = MaterialGroup(self.material_ubo, parent=mars_group, shininess=256, specular=Vec4(1.0, 1.0, 1.0, 1.0))
+        #self.plane = GridMesh(self.program, self.batch, 1000, 1000, position=Vec3(0, -500, 0), columns=100, rows=100, group=material_group2)
+        self.terrain = load_mesh('res/model/terrain/models/mars/terrain/mars.OBJ', self.program, self.batch, material_group, False, position=(10000, -5000, -10000), scale=10, tex_scale=3)
 
-        self.plane = GridMesh(self.program, self.batch, 1000, 1000, columns=100, rows=100, group=texture_group)
-
-        #self.cube = Cuboid(self.program, self.batch, material_group, position=Vec3(0, 0, 0), size=(300, 300, 300))
-
-        self.sphere1 = Sphere(self.program, self.batch, material_group2, Vec3(0, 0, 0), radius=150)
-        self.label = pyglet.text.Label("Claude Sphere", x=self.sphere1.position.x, y=250, z=self.sphere1.position.z, font_size=20, batch=self.batch, group=blend_group)
+        self.sphere1 = Sphere(self.program, self.batch, material_group2, Vec3(0, 0, 0), radius=150, lat_segments=32)
+        #self.label = pyglet.text.Label("Claude Sphere", x=self.sphere1.position.x, y=250, z=self.sphere1.position.z, font_size=20, batch=self.batch, group=blend_group)
 
 
-        # self.meshes = [
-        #     load_mesh(
-        #         'res/model/vessel.obj', self.program, self.batch, texture_group,
-        #         position=(i*300, 0, 0), scale=0.5, tex_scale=3, add_tangents=True
-        #     ) for i in range(2)
-        # ]
+        self.meshes = [
+            load_mesh(
+                'res/model/vessel.obj', self.program, self.batch, material_group2,
+                position=(i*300 + 300, 0, 0), scale=0.5, tex_scale=3, add_tangents=True
+            ) for i in range(1)
+        ]
 
 
 
@@ -82,7 +78,7 @@ class App(pyglet.window.Window):
 
         # self.program['rendering_dynamic_object'] = True
         self.program['shadow_mapping'] = False
-        self.program['environment_mapping'] = False
+        #self.program['environment_mapping'] = False
         self.program['normal_mapping'] = False
 
         glEnable(GL_DEPTH_TEST)
@@ -95,7 +91,7 @@ class App(pyglet.window.Window):
 
             #self.mesh.matrix = pyglet.math.Mat4.from_rotation(-math.sin(self.time), Vec3(0, 1, 0)) @ Mat4.from_scale(Vec3(1, 1 + 0.5*math.sin(self.time), 1))
 
-            self.program['refractive_index'] = 1.52 + 0.5 * math.cos(self.time)
+            #self.program['refractive_index'] = 1.52 + 0.5 * math.cos(self.time)
 
         self.program['view_position'] = self.camera.position
         #self.program['time'] = self.time*0.1
@@ -141,6 +137,8 @@ class App(pyglet.window.Window):
             case pyglet.window.key.J:
                 for mesh in self.meshes:
                     mesh.unfreeze()
+            case pyglet.window.key.F:
+                self.program['fresnel'] = not self.program['fresnel']
 
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
         if buttons == pyglet.window.mouse.LEFT:

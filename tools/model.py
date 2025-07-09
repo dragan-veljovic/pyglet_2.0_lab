@@ -201,6 +201,97 @@ class Plane(Mesh):
         return positions, indices, tex_coords
 
 
+# class Sphere(Mesh):
+#     """A sphere model with support for texturing and advanced lighting."""
+#
+#     def __init__(
+#             self,
+#             program: ShaderProgram,
+#             batch: Batch,
+#             group: Group | None = None,
+#             position=Vec3(0, 0, 0),
+#             radius=50,
+#             lat_segments=16,
+#             lng_segments=32,
+#             color=(1.0, 1.0, 1.0, 1.0)
+#     ):
+#         self.position = position
+#         self.radius = radius
+#         self.lat_segments = lat_segments
+#         self.lng_segments = lng_segments
+#
+#         positions, indices, tex_coords = self._generate_vertex_data()
+#
+#         normals = calculate_normals(positions, indices)
+#         tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
+#
+#         data = {
+#             'indices': indices,
+#             'position': positions,
+#             'tex_coord': tex_coords,
+#             'color': color * (len(positions) // 3),
+#             'normal': normals,
+#             'tangent': tangents,
+#             'bitangent': bitangents
+#         }
+#
+#         super().__init__(data, program, batch, group)
+#
+#     def _generate_vertex_data(self) -> tuple:
+#         """Generate vertices, indices, and texture coordinates in a single pass."""
+#         vertices = []
+#         tex_coords = []
+#         indices = []
+#
+#         x, y, z = self.position.x, self.position.y, self.position.z
+#
+#         # Generate vertices, texture coordinates, and indices in a single loop
+#         for lat in range(self.lat_segments + 1):
+#             # Latitude angle from 0 to π (top to bottom)
+#             lat_angle = math.pi * lat / self.lat_segments
+#             sin_lat = math.sin(lat_angle)
+#             cos_lat = math.cos(lat_angle)
+#             v = lat / self.lat_segments
+#
+#             for lng in range(self.lng_segments + 1):
+#                 # Longitude angle from 0 to 2π (around)
+#                 lng_angle = 2 * math.pi * lng / self.lng_segments
+#                 sin_lng = math.sin(lng_angle)
+#                 cos_lng = math.cos(lng_angle)
+#
+#                 # Calculate vertex position
+#                 vertex_x = x + self.radius * sin_lat * cos_lng
+#                 vertex_y = y + self.radius * cos_lat
+#                 vertex_z = z + self.radius * sin_lat * sin_lng
+#
+#                 vertices.extend([vertex_x, vertex_y, vertex_z])
+#
+#                 # Calculate texture coordinates
+#                 u = min(lng / self.lng_segments, 1.0)
+#                 tex_coords.extend([u, v])
+#
+#                 # Generate indices (skip last longitude segment and last latitude segment)
+#                 if lat < self.lat_segments and lng < self.lng_segments:
+#                     # Current vertex and next vertex indices
+#                     current = lat * (self.lng_segments + 1) + lng
+#                     next_lng = lat * (self.lng_segments + 1) + lng + 1
+#                     next_lat = (lat + 1) * (self.lng_segments + 1) + lng
+#                     next_both = (lat + 1) * (self.lng_segments + 1) + lng + 1
+#
+#                     # Skip triangles at the poles to avoid degenerate triangles
+#                     if lat == 0:
+#                         # Top cap - only create one triangle per segment
+#                         indices.extend([current, next_both, next_lat])
+#                     elif lat == self.lat_segments - 1:
+#                         # Bottom cap - only create one triangle per segment
+#                         indices.extend([current, next_lng, next_both])
+#                     else:
+#                         # Middle sections - create two triangles per quad
+#                         indices.extend([current, next_lng, next_both])
+#                         indices.extend([current, next_both, next_lat])
+#
+#         return tuple(vertices), tuple(indices), tuple(tex_coords)
+
 class Sphere(Mesh):
     """A sphere model with support for texturing and advanced lighting."""
 
@@ -222,7 +313,12 @@ class Sphere(Mesh):
 
         positions, indices, tex_coords = self._generate_vertex_data()
 
+        # Calculate normals using your existing function
         normals = calculate_normals(positions, indices)
+
+        # Fix seam normals by averaging with corresponding vertices
+        self._fix_seam_normals(normals)
+
         tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
 
         data = {
@@ -291,6 +387,36 @@ class Sphere(Mesh):
                         indices.extend([current, next_both, next_lat])
 
         return tuple(vertices), tuple(indices), tuple(tex_coords)
+
+    def _fix_seam_normals(self, normals):
+        """Fix normals at the seam by averaging with corresponding vertices."""
+        # For each latitude row, average the normal of the first and last longitude vertices
+        for lat in range(self.lat_segments + 1):
+            # Index of first vertex in this latitude row (lng=0)
+            first_idx = lat * (self.lng_segments + 1)
+            # Index of last vertex in this latitude row (lng=lng_segments)
+            last_idx = lat * (self.lng_segments + 1) + self.lng_segments
+
+            # Get the normals
+            first_normal = normals[first_idx * 3:first_idx * 3 + 3]
+            last_normal = normals[last_idx * 3:last_idx * 3 + 3]
+
+            # Average them
+            avg_normal = [
+                (first_normal[0] + last_normal[0]) / 2,
+                (first_normal[1] + last_normal[1]) / 2,
+                (first_normal[2] + last_normal[2]) / 2
+            ]
+
+            # Normalize
+            length = (avg_normal[0] ** 2 + avg_normal[1] ** 2 + avg_normal[2] ** 2) ** 0.5
+            if length > 0:
+                avg_normal = [avg_normal[0] / length, avg_normal[1] / length, avg_normal[2] / length]
+
+            # Apply to both vertices
+            for i in range(3):
+                normals[first_idx * 3 + i] = avg_normal[i]
+                normals[last_idx * 3 + i] = avg_normal[i]
 
 
 class GridMesh(Mesh):
@@ -705,37 +831,40 @@ class MaterialGroup(Group):
     def __init__(
             self,
             ubo: UniformBufferObject,
-            ambient=Vec4(0.25, 0.25, 0.25, 1.0),
-            diffuse=Vec4(0.5, 0.5, 0.5, 1.0),
-            specular=Vec4(0.75, 0.75, 0.75, 1.0),
-            emission=Vec4(0.0, 0.0, 0.0, 1.0),
+            ambient=(0.25, 0.25, 0.25, 1.0),
+            diffuse=(0.7, 0.7, 0.7, 1.0),
+            specular=(0.75, 0.75, 0.75, 1.0),
+            emission=(0.0, 0.0, 0.0, 1.0),
             shininess=32,
-            env_mapping=False,
-            env_map_strength=0.5,
-            refractive_index=1.0,
+            env_mapping_mode=1,  # 0 - off, 1 - reflection, 2 - refraction, 3 - reflection + refraction
+            reflection_strength=1.0,
+            refraction_strength=1.0,
+            refractive_index=1.52,
             fresnel_power=5.0,
+            bump_strength=1.0,
             order=0,
             parent=None,
     ):
         super().__init__(order, parent)
         self.ubo = ubo
-        self.ambient = ambient
-        self.diffuse = diffuse
-        self.specular = specular
-        self.emission = emission
+        self.ambient = Vec4(*ambient)
+        self.diffuse = Vec4(*diffuse)
+        self.specular = Vec4(*specular)
+        self.emission = Vec4(*emission)
         self.shininess = shininess
-        self.env_mapping = env_mapping
-        self.env_map_strength = env_map_strength
+        self.env_mapping = env_mapping_mode
+        self.env_mapping_mode = env_mapping_mode
+        self.reflection_strength = reflection_strength
+        self.refraction_strength = refraction_strength
         self.refractive_index = refractive_index
         self.fresnel_power = fresnel_power
-
-        self.params = ['ambient', 'diffuse', 'specular', 'emission', 'shininess',
-                       'env_mapping', 'refractive_index', 'fresnel_power']
+        self.bump_strength = bump_strength
 
     def update_ubo(self):
         with self.ubo as ubo:
-            for param in self.params:
-                setattr(ubo, param, getattr(self, param))
+            for param in self.__dict__:
+                if param != 'ubo':
+                    setattr(ubo, param, getattr(self, param))
 
     def set_state(self) -> None:
         self.update_ubo()
