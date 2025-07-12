@@ -216,22 +216,25 @@ vec3 get_lighting(float shadow_factor, vec3 normal, vec3 texture_diff){
         refraction = vec3(0.0);
     }
 
-    vec3 fresnel_factor, env_term;
+    vec3 fresnel_factor, env_term, base_color;
     if (fresnel) {
+        // if fresnel is on, f0 determines actual reflectivity while reflection_str amount of fresnel highlight
         fresnel_factor = get_fresnel_factor(normal);
         env_term = reflection * fresnel_factor + refraction;
-    } else {
-        fresnel_factor = vec3(0.0);
-        env_term = vec3(0.0);
-    }
+        base_color = material.diffuse.rgb * frag_color.rgb * light.color.rgb * texture_diff * (1.0 - fresnel_factor); // * reflection ; // for interesting efffects
+        return (ambient + diffuse * shadow_factor).rgb * base_color + env_term + specular.rgb * shadow_factor * light.color.rgb;
 
-    // base_color adjusted by fresnel difference to avoid burnout with high F0
-    vec3 base_color = material.diffuse.rgb * frag_color.rgb * light.color.rgb * texture_diff * (1.0 - fresnel_factor); // * reflection ; // for interesting efffects
-    return (ambient + diffuse * shadow_factor).rgb * base_color + env_term + specular.rgb * shadow_factor * light.color.rgb;
+    } else {
+        // if fresnel is off, f0 has no effect, and reflectivity is controlled by large values of reflection_str
+        fresnel_factor = vec3(0.0);
+        env_term = reflection + refraction;
+        base_color = material.diffuse.rgb * frag_color.rgb * light.color.rgb * texture_diff * env_term; // * reflection ; // for interesting efffects
+        return (ambient + diffuse * shadow_factor).rgb * base_color + specular.rgb * shadow_factor * light.color.rgb;
+    }
 }
 
-// Confusing relationship between f0 reflectance and reflection_strength, which controls reflection?
-// currently all is fresnel, it's off entire object no reflection
+// Material settings -> Textures settings -> Render settings chain for full material versatility.
+// MaterialGroup has to be able to change global render switches
 
 vec3 get_diffuse_texture(){
     return texture(diffuse_texture, frag_tex_coord).rgb;

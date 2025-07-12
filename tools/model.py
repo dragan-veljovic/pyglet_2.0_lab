@@ -9,7 +9,6 @@ from pyglet.image import Texture
 from pyglet.gl import *
 from pyglet.math import Vec3, Mat4, Vec4
 from typing import Sequence
-
 from concurrent.futures import ThreadPoolExecutor
 
 executor = ThreadPoolExecutor()
@@ -865,16 +864,16 @@ class MaterialGroup(Group):
         """
         super().__init__(order, parent)
         self.ubo = ubo
-        self.ambient = self._to_vec4(ambient)
-        self.diffuse = self._to_vec4(diffuse)
-        self.specular = self._to_vec4(specular)
-        self.emission = self._to_vec4(emission)
+        self.ambient = ambient
+        self.diffuse = diffuse
+        self.specular = specular
+        self.emission = emission
         self.shininess = shininess
         self.reflection_strength = reflection_strength
         self.refraction_strength = refraction_strength
         self.refractive_index = refractive_index
         self.fresnel_power = fresnel_power
-        self.f0_reflectance = self._to_vec4(f0_reflectance)
+        self.f0_reflectance = f0_reflectance
         self.bump_strength = bump_strength
 
     def update_ubo(self):
@@ -896,6 +895,11 @@ class MaterialGroup(Group):
             return value
         else:
             raise ValueError(f"Invalid value: {value}. Use single float or RGBA tuple.")
+
+    def __setattr__(self, name, value):
+        if name in ['ambient', 'diffuse', 'specular', 'emission', 'f0_reflectance']:
+            value = self._to_vec4(value)
+        super().__setattr__(name, value)
 
 
 def get_model_matrix(

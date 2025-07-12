@@ -6,8 +6,15 @@ from tools.camera import Camera3D
 from tools.lighting import DirectionalLight
 from tools.skybox import Skybox
 
+import pyglet
+import threading
+import code
+
 settings = {
-    'default_mode': True,
+    #'default_mode': True,
+    'width': 1920,
+    'height': 1080,
+    'fullscreen': True,
     'config': get_config()
 }
 
@@ -50,7 +57,7 @@ class App(pyglet.window.Window):
         terrain_texture = DiffuseNormalTextureGroup(
             diffuse=pyglet.image.load('res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg').get_texture(),
             normal=pyglet.image.load(
-               'res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_nor_gl_2k.jpg').get_texture(),
+               'res/textures/textures/painted_plaster_wall_nor_gl_1k.jpg').get_texture(),
             program=self.program, parent=blend_group
         )
 
@@ -61,17 +68,17 @@ class App(pyglet.window.Window):
         )
 
         self.material_ubo = self.program.uniform_blocks['MaterialBlock'].create_ubo()
-        self.material_group = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=1.0, shininess=128, bump_strength=0.2, f0_reflectance=0.04)
+        self.material_group = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=1.0, shininess=4, bump_strength=2, f0_reflectance=0.2, specular=0.2, diffuse=0.15)
         self.sphere1 = Sphere(self.program, self.batch, self.material_group, Vec3(0, 0, 0), radius=150, lat_segments=32)
 
-        terrain_group = MaterialGroup(self.material_ubo, parent=terrain_texture, shininess=128, bump_strength=0.2, specular=0, reflection_strength=1.0)
-        self.terrain = load_mesh('res/model/terrain/models/mars/terrain/mars.OBJ', self.program, self.batch, terrain_group, False, position=(10000, -5000, -10000), scale=10, tex_scale=5)
+        terrain_group = MaterialGroup(self.material_ubo, parent=terrain_texture, shininess=128, bump_strength=0.2, specular=0, reflection_strength=0.0)
+        self.terrain = load_mesh('res/model/terrain/models/mars/terrain/mars.OBJ', self.program, self.batch, terrain_group, True, position=(10000, -5000, -10000), scale=10, tex_scale=5)
 
         material_group2 = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=1, shininess=128, bump_strength=1, f0_reflectance=(0.839, 0.565, 0.255, 1.0))
         self.meshes = [
             load_mesh(
-                'res/model/vessel.obj', self.program, self.batch, material_group2,
-                position=(i*300 + 300, 0, 0), scale=0.5, tex_scale=3, add_tangents=True, color=(0.0, 0.0, 0.0, 1.0)
+                'res/model/vessel.obj', self.program, self.batch, self.material_group,
+                position=(i*300 + 300, 0, 0), scale=0.5, tex_scale=3, add_tangents=True
             ) for i in range(1)
         ]
 
@@ -86,6 +93,15 @@ class App(pyglet.window.Window):
         self.run = True
 
         glEnable(GL_DEPTH_TEST)
+        self.camera.toggle_fps_controls()
+
+        print(self.batch.group_children)
+
+    def on_activate(self):
+        self.camera.toggle_fps_controls()
+
+    def on_deactivate(self):
+        self.camera.toggle_fps_controls()
 
     def on_draw(self):
         if self.run:
@@ -148,7 +164,8 @@ class App(pyglet.window.Window):
 
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
         if buttons == pyglet.window.mouse.RIGHT:
-            self.material_group.bump_strength += dy*0.02
+            self.material_group.f0_reflectance += dy*0.02
+            print(self.material_group.f0_reflectance)
         if buttons == pyglet.window.mouse.LEFT:
             if modifiers & pyglet.window.key.LSHIFT:
                 self.mesh_y += dy
@@ -160,4 +177,14 @@ class App(pyglet.window.Window):
 
 
 if __name__ == '__main__':
-    app = start_app(App, settings)
+    # app = start_app(App, settings)
+    app = App(**settings)
+
+    def start_console():
+        banner = "Interactive console (type `app.some_param = x` to change parameters)"
+        code.interact(local=globals() | locals(), banner=banner)
+
+    threading.Thread(target=start_console, daemon=True).start()
+
+    pyglet.app.run()
+
