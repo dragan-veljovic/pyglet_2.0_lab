@@ -1,12 +1,14 @@
 """Useful convenience definitions for Pyglet."""
 import textwrap
 from pathlib import Path
-from typing import Type
-from pyglet.graphics.shader import Shader, ShaderProgram
 import pyglet
 import timeit
 from pyglet.graphics.shader import ShaderProgram, Shader
 import logging
+from typing import Callable
+from pyglet.window import Window
+import threading
+import code
 
 DEBUG_MODE = True
 logging.basicConfig(
@@ -27,7 +29,7 @@ def set_background_color(r: int = 20, g: int = 30, b: int = 40, a=255):
 def center_window(window: pyglet.window.Window):
     pass
     """ Centers passed window if entire window can fit in a current display resolution."""
-    desk_res = pyglet.display.Display().get_default_screen()
+    desk_res = pyglet.display.get_display().get_default_screen()
     width, height = window.width, window.height
     if desk_res.width > width and desk_res.height > height:
         window.set_location((desk_res.width - window.width) // 2,
@@ -48,26 +50,39 @@ def get_config(
     )
 
 
-def start_app(window_ref: Type[pyglet.window.Window], arguments: dict = None) -> pyglet.window.Window:
+def start_app(
+        window_ref: Callable[..., Window],
+        default_mode=False,
+        enable_console=False,
+        fps: int | None = None,
+        window_centered=True,
+        **kwargs
+) -> Window:
     """
-    A convenience method of initializing pyglet loop and Window with custom arguments.
+    A convenience method of initializing pyglet.window.Window and starting a pyglet loop with custom arguments.
 
-    :param window_ref: a reference to your pyglet.window.Window subclass to start
-    :param arguments: a dictionary with arguments to be passed to your window instance
-        This dictionary accepts two special keys:
-        "default_mode" - if its value is True, all other settings are overridden
-            and window is created at desktop resolution, ran in full screen at max refresh rate
-        "fps" - custom fps at which to run pyglet loop
+    :param window_ref: A reference to your pyglet.window.Window subclass to start.
+    :param default_mode: Create window at current desktop resolution, run in fullscreen at max refresh rate.
+    :param enable_console:
+        Start interactive console for real-time attribute changes.
+        This may require starting app from your terminal (python main.py).
+        If you run through Pycharm, check "Edit Configurations -> Execution -> Emulate terminal in output console".
+    :param fps: Custom desired fps at which to run pyglet loop. Defaults to 60 if left 'None'.
+        It will get overridden with your monitor's max refresh rate if 'default_mode = True'.
+    :param kwargs: Any other kwargs to be passed to 'Window' class during its creation.
+    :param window_centered: Created 'Window' will be centered, if its resolution is less that the default screen's.
 
-    Example:
 
-        SETTINGS = {
-            "default_mode": False,
-            "fps": 60,
-            "width": 1920,
-            "height": 1080,
-            "resizable": True,
-            "config": get_config(samples=2)
+    :return: your custom pyglet.window.Window subclass
+
+    Usage example:
+            SETTINGS = {
+            "default_mode": False,  # setting this to True will override width, height, fullscreen and fps settings
+            'width': 1920,
+            'height': 1080,
+            'config': get_config(samples=2),
+            'vsync': False,
+            'fullscreen': True
         }
 
         class App(pyglet.window.Window):
@@ -76,28 +91,41 @@ def start_app(window_ref: Type[pyglet.window.Window], arguments: dict = None) ->
             # ... contents
 
         if __name__ == "__main__":
-        start_app(App, SETTINGS)
+            app = start_app(App, fps=120, enable_console=True, **SETTINGS)
+            # or simply 'start_app(App)' for reasonable defaults.
     """
-    if arguments is None:
-        window_arguments = {'width': 1280, 'height': 720, 'resizable': True}
-    else:
-        window_arguments = arguments.copy()
-
-    default_mode = window_arguments.pop('default_mode') if 'default_mode' in window_arguments else False
-    fps = window_arguments.pop('fps') if 'fps' in window_arguments else 60
-
     if default_mode:
         display = pyglet.display.get_display()
         screen = display.get_default_screen()
         current_mode = screen.get_mode()
         width, height = current_mode.width, current_mode.height
         fps = current_mode.rate
-        window = window_ref(width=width, height=height, fullscreen=True)
+        kwargs.update({'width': width, 'height': height, 'fullscreen': True})
     else:
-        window = window_ref(**window_arguments)
+        fps = fps if fps is not None else 60
+        if not kwargs:
+            kwargs = {'width': 1280, 'height': 720, 'resizable': True}
 
-    pyglet.app.run(1/fps)
-    return window
+    app = window_ref(**kwargs)
+
+    if window_centered:
+        center_window(app)
+
+    def start_console() -> None:
+        """
+        App instance can be accessed with variable 'app' or 'self' in console, for convenient attribute changes.
+        Example: 'app.material.diffuse=0.8' or more naturally 'self.material.diffuse=0.8"
+        """
+        local_vars = {'app': app, 'self': app}
+        banner = "Interactive console (type `app.some_param = x` to change parameters)"
+        code.interact(local=globals() | local_vars, banner=banner)
+
+    if enable_console:
+        threading.Thread(target=start_console, daemon=True).start()
+
+    pyglet.app.run(1 / fps)
+
+    return app
 
 
 def get_default_shader_program() -> ShaderProgram:
@@ -176,6 +204,7 @@ def time_it(func_handle):
         return result
 
     return wrapper
+
 
 # simple palette - use color module for more colors
 palette = {"orange": (209, 60, 23, 255), "yellow": (219, 204, 101, 255), "grey": (112, 112, 112, 255),

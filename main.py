@@ -11,11 +11,13 @@ import threading
 import code
 
 settings = {
-    #'default_mode': True,
-    'width': 1920,
-    'height': 1080,
-    'fullscreen': True,
-    'config': get_config()
+    'default_mode': False,
+    'width': 1280,
+    'height': 720,
+    'config': get_config(samples=2),
+    'vsync': False,
+    'fullscreen': False,
+    'resizable': True
 }
 
 
@@ -177,14 +179,7 @@ class App(pyglet.window.Window):
 
 
 if __name__ == '__main__':
-    # app = start_app(App, settings)
-    app = App(**settings)
+    app = start_app(App, fps=120, enable_console=True, **settings)
 
-    def start_console():
-        banner = "Interactive console (type `app.some_param = x` to change parameters)"
-        code.interact(local=globals() | locals(), banner=banner)
 
-    threading.Thread(target=start_console, daemon=True).start()
-
-    pyglet.app.run()
 
