@@ -16,6 +16,15 @@ uniform sampler2D normal_map;  // texture slot 1
 uniform sampler2D shadow_map;  // texture slot 4
 uniform samplerCube skybox;  // texture slot 5
 
+uniform WindowBlock {
+    mat4 projection;
+    mat4 view;
+    vec3 view_position;
+    float time;
+    float z_far;
+    float fade_length;
+} window;
+
 layout(std140) uniform LightBlock {
     vec3 position;
     vec3 target;
@@ -30,25 +39,16 @@ layout(std140) uniform LightBlock {
     vec4 specular;
 } light;
 
-// camera properties
-uniform vec3 view_position;
-uniform float z_far = 5000.0;
-uniform float fade_length = 1000.0;
-
-
-// material properties
-uniform float refractive_index = 1.52;
-
 layout(std140) uniform MaterialBlock {
     vec4 ambient;
     vec4 diffuse;
     vec4 specular;
     vec4 emission;
     float shininess;
-    int env_mapping_mode;
     float reflection_strength;
     float refraction_strength;
     float refractive_index;
+    vec4 f0_reflectance;
     float fresnel_power;
     float bump_strength;
 } material;
@@ -67,12 +67,13 @@ uniform bool fresnel = true;
 
 
 float get_fade_factor(){
-    float fade_start = z_far - fade_length;
-    float fade_end = z_far;
-    float distance = length(frag_position - view_position);
-    return clamp(1.0 - (distance - fade_start) / (fade_end - fade_start), 0.0, 1.0);
+    float fade_start = window.z_far - window.fade_length;
+    float fade_end = window.z_far;
+    float distance = length(frag_position - window.view_position);
+    // gradual fade with cosine
+    float t = clamp((distance - fade_start) / (fade_end - fade_start), 0.0, 1.0);
+    return 0.5 + 0.5 * cos(t * 3.14159);
 }
-
 
 float get_shadow_factor() {
     // Perform perspective divide
@@ -115,17 +116,15 @@ vec3 get_TBN_transformed_normals(){
     vec3 normal = texture(normal_map, frag_tex_coord).rgb;
     // obtain normal from normal map in range [0, 1]
     normal = normal * 2.0 - 1.0;
-
-    // NEW!! Control the bump amount
+    // bump amount
     normal = mix(vec3(0.0, 0.0, 1.0), normal, material.bump_strength);
-
     // transform normals from tangetn space
     normal = normalize(TBN * normal);
     return normal;
 }
 
 
-void get_phong_lighting_factors(
+void update_phong_factors(
     vec3 normal,
     out vec4 ambient,
     out vec4 diffuse,
@@ -157,7 +156,7 @@ void get_phong_lighting_factors(
         // Specular lighting
         float spec;
         if (lighting_specular) {
-            vec3 view_dir = normalize(view_position - frag_position);  // direction to viewer
+            vec3 view_dir = normalize(window.view_position - frag_position);  // direction to viewer
             vec3 reflect_dir = -reflect(light_dir, normal);  // reflection around normal
             spec = pow(max(dot(view_dir, reflect_dir), 0.0), material.shininess);  // Specular factor
         } else {
@@ -167,61 +166,72 @@ void get_phong_lighting_factors(
     }
 }
 
-vec3 fresnel_schlick(vec3 normal){
-    // vector from fragment to camera position
-    vec3 view_dir = normalize(view_position - frag_position);
-    float cos_theta = clamp(dot(view_dir, normal), 0.0, 1.0);
-    vec3 F0 = vec3(0.1);  // non metallic default, set in material
-    return F0 + (1.0 - F0) * pow(1.0 - cos_theta, 5);
+
+void update_environment_factors(vec3 normal, out vec3 reflection, out vec3 refraction){
+    vec3 view_dir = normalize(frag_position - window.view_position);
+    vec3 sample_vector;
+    if (material.reflection_strength != 0) {
+        // calculate reflection
+        sample_vector = -reflect(view_dir, normal);
+        reflection = texture(skybox, sample_vector).rgb * material.reflection_strength;
+    } else {
+        reflection = vec3(0.0);
+    }
+    if (material.refraction_strength != 0){
+        // calculate refraction
+        float ratio = 1.00 / material.refractive_index;
+        sample_vector = -refract(view_dir, normal, ratio);
+        refraction = texture(skybox, sample_vector).rgb * material.refraction_strength;
+    } else {
+        refraction = vec3(0.0);
+    }
 }
 
-vec3 get_environment_mapping(vec3 normal){
-    // 0 - off, 1 - reflection, 2 - refraction, 3 - reflection + refraction
-    if (material.env_mapping_mode != 0) {
-        float ratio = 1.00 / material.refractive_index;
-        vec3 view_dir = normalize(frag_position - view_position);
-        vec3 refraction, reflection, sample_vector;
 
-        // calculate reflection
-        if (material.env_mapping_mode == 1 || material.env_mapping_mode == 3){
-            sample_vector = -reflect(view_dir, normal);
-            reflection = texture(skybox, sample_vector).rgb;
-        } else {
-            reflection = vec3(0.0);
-        }
-
-        // calculate refraction
-        if (material.env_mapping_mode == 2 || material.env_mapping_mode == 3) {
-            sample_vector = -refract(view_dir, normal, ratio);
-            refraction = texture(skybox, sample_vector).rgb;
-        } else {
-            refraction = vec3(0.0);
-        }
-        return reflection * material.reflection_strength + refraction * material.refraction_strength;
-    }
-    return vec3(1.0);
+vec3 get_fresnel_factor(vec3 normal){
+    // vector from fragment to camera position
+    vec3 view_dir = normalize(window.view_position - frag_position);
+    float cos_theta = clamp(dot(view_dir, normal), 0.0, 1.0);
+    vec3 F0 = material.f0_reflectance.rgb;  // base reflectance 0.04 for non-metals
+    return F0 + (1.0 - F0) * pow(1.0 - cos_theta, 5);
 }
 
 
 vec3 get_lighting(float shadow_factor, vec3 normal, vec3 texture_diff){
     vec4 ambient, diffuse, specular;
     if (lighting){
-        get_phong_lighting_factors(normal, ambient, diffuse, specular);
+        update_phong_factors(normal, ambient, diffuse, specular);
     } else {
         ambient = vec4(0.0);
         diffuse = vec4(1.0);
         specular = vec4(0.0);
     }
     // separate specular from effect of base color as it's only affected by specular setting and light color
-    vec3 environment = environment_mapping ? get_environment_mapping(normal) : vec3(1.0);
-    vec3 base_color = material.diffuse.rgb * frag_color.rgb * light.color.rgb * texture_diff * environment;
-    if (fresnel){
-        vec3 fresnel = fresnel_schlick(normal);
-        base_color = mix(base_color, environment, fresnel);
+    vec3 reflection, refraction;
+    if (environment_mapping) {
+        update_environment_factors(normal, reflection, refraction);
+    } else {
+        // No environment data, use reflection of 1.0 for white halo if fresnel effect is used
+        reflection = vec3(1.0);  // how about F0 reflectance here?
+        refraction = vec3(0.0);
     }
-    return (ambient + diffuse * shadow_factor).rgb * base_color + specular.rgb * shadow_factor * light.color.rgb ;
+
+    vec3 fresnel_factor, env_term;
+    if (fresnel) {
+        fresnel_factor = get_fresnel_factor(normal);
+        env_term = reflection * fresnel_factor + refraction;
+    } else {
+        fresnel_factor = vec3(0.0);
+        env_term = vec3(0.0);
+    }
+
+    // base_color adjusted by fresnel difference to avoid burnout with high F0
+    vec3 base_color = material.diffuse.rgb * frag_color.rgb * light.color.rgb * texture_diff * (1.0 - fresnel_factor); // * reflection ; // for interesting efffects
+    return (ambient + diffuse * shadow_factor).rgb * base_color + env_term + specular.rgb * shadow_factor * light.color.rgb;
 }
 
+// Confusing relationship between f0 reflectance and reflection_strength, which controls reflection?
+// currently all is fresnel, it's off entire object no reflection
 
 vec3 get_diffuse_texture(){
     return texture(diffuse_texture, frag_tex_coord).rgb;
@@ -237,12 +247,6 @@ void main() {
 
     // Texturing
     vec3 texture_diff = texturing ? get_diffuse_texture() : vec3(1.0);
-
-    // Environment mapping
-    // vec3 env_map = environment_mapping ? get_environment_mapping(normal) : vec3(1.0);
-    // MOVED TO LIGHTING CALCULATION - refine!
-    // currently if fresnel reflects environment it also must be in base color
-    // and if no env in base color, fresnel reflects vec3(1.0)
 
     // Phong lighting
     vec3 lighting = get_lighting(shadow_factor, normal, texture_diff);

@@ -8,7 +8,7 @@ from pyglet.graphics.vertexdomain import IndexedVertexList, VertexList
 from pyglet.image import Texture
 from pyglet.gl import *
 from pyglet.math import Vec3, Mat4, Vec4
-from pyglet.graphics.shader import UniformBlock
+from typing import Sequence
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -423,7 +423,6 @@ class GridMesh(Mesh):
     """Tessellated rectangular grid, split into triangles.
     TODO: winding problem
     """
-
     def __init__(
             self,
             program: ShaderProgram,
@@ -836,28 +835,46 @@ class MaterialGroup(Group):
             specular=(0.75, 0.75, 0.75, 1.0),
             emission=(0.0, 0.0, 0.0, 1.0),
             shininess=32,
-            env_mapping_mode=1,  # 0 - off, 1 - reflection, 2 - refraction, 3 - reflection + refraction
-            reflection_strength=1.0,
-            refraction_strength=1.0,
+            reflection_strength=0.0,  # leave 0.0 for reflections off
+            refraction_strength=0.0,  # leave 0.0 for refractions off
             refractive_index=1.52,
+            f0_reflectance=(0.04, 0.04, 0.04, 1.0),
             fresnel_power=5.0,
             bump_strength=1.0,
             order=0,
             parent=None,
     ):
+        """
+        If all RGB values are identical, they can be also assigned with a single float for convenience.
+        For example diffuse=0.65 will be equivalent to diffuse=(0.65, 0.65, 0.65, 1.0) through internal conversion.
+
+        :param ubo:
+        :param ambient:
+        :param diffuse:
+        :param specular:
+        :param emission:
+        :param shininess:
+        :param reflection_strength:
+        :param refraction_strength:
+        :param refractive_index:
+        :param f0_reflectance:
+        :param fresnel_power:
+        :param bump_strength:
+        :param order:
+        :param parent:
+        """
         super().__init__(order, parent)
         self.ubo = ubo
-        self.ambient = Vec4(*ambient)
-        self.diffuse = Vec4(*diffuse)
-        self.specular = Vec4(*specular)
-        self.emission = Vec4(*emission)
+        self.ambient = self._to_vec4(ambient)
+        self.diffuse = self._to_vec4(diffuse)
+        self.specular = self._to_vec4(specular)
+        self.emission = self._to_vec4(emission)
         self.shininess = shininess
-        self.env_mapping = env_mapping_mode
-        self.env_mapping_mode = env_mapping_mode
         self.reflection_strength = reflection_strength
         self.refraction_strength = refraction_strength
         self.refractive_index = refractive_index
         self.fresnel_power = fresnel_power
+        self.f0_reflectance = self._to_vec4(f0_reflectance)
         self.bump_strength = bump_strength
 
     def update_ubo(self):
@@ -868,6 +885,17 @@ class MaterialGroup(Group):
 
     def set_state(self) -> None:
         self.update_ubo()
+
+    @staticmethod
+    def _to_vec4(value):
+        if isinstance(value, (int, float)):
+            return Vec4(value, value, value, 1.0)
+        elif isinstance(value, (tuple, list)) and len(value) == 4:
+            return Vec4(*value)
+        elif isinstance(value, Vec4):
+            return value
+        else:
+            raise ValueError(f"Invalid value: {value}. Use single float or RGBA tuple.")
 
 
 def get_model_matrix(
@@ -1445,9 +1473,6 @@ def transform_normal(normal, matrix):
     if length > 0.0001:
         return [x / length, y / length, z / length]
     return [0, 0, 1]  # Default fallback
-
-
-
 
 
 def add_tangents_bitangents(data: dict) -> None:

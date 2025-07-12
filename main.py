@@ -6,7 +6,6 @@ from tools.camera import Camera3D
 from tools.lighting import DirectionalLight
 from tools.skybox import Skybox
 
-
 settings = {
     'default_mode': True,
     'config': get_config()
@@ -25,18 +24,22 @@ class App(pyglet.window.Window):
             pyglet.resource.shader('res/shaders/dev.frag', 'fragment')
         )
 
-        self.camera = Camera3D(self, z_far=10000, speed=5)
-        self.program['z_far'] = self.camera.z_far
-        self.program['fade_length'] = 2000
+        self.camera = Camera3D(self, z_far=12000, speed=20)
+        self.ubo = self.program.uniform_blocks['WindowBlock'].create_ubo()
+
+        with self.ubo as ubo:
+            ubo.projection = self.projection
+            ubo.view = self.view
+            ubo.z_far = self.camera.z_far
+            ubo.fade_length = 2000
+            ubo.projection = self.projection
+            ubo.view = self.view
 
         self.time = 0.0
         self.clock = pyglet.clock.Clock()
         self.start_time = self.clock.time()
-        self.draw_skybox = True
-        self.wireframe = False
-        self.run = True
 
-        self.light = DirectionalLight()
+        self.light = DirectionalLight(position=Vec3(1, 1, 1))
         self.light.bind_to_block(self.program.uniform_blocks['LightBlock'])
         self.skybox = Skybox('res/textures/skybox')
         self.skybox.set_environment_map(self.program)
@@ -44,42 +47,43 @@ class App(pyglet.window.Window):
         shader_group = pyglet.graphics.ShaderGroup(self.program)
         blend_group = BlendGroup(parent=shader_group)
 
-        texture_group = DiffuseNormalTextureGroup(
+        terrain_texture = DiffuseNormalTextureGroup(
             diffuse=pyglet.image.load('res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg').get_texture(),
             normal=pyglet.image.load(
                'res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_nor_gl_2k.jpg').get_texture(),
             program=self.program, parent=blend_group
         )
 
+        material_texture = DiffuseNormalTextureGroup(
+            pyglet.image.load('res/textures/textures/slate_floor_03_diff_4k.jpg').get_texture(),
+            normal=pyglet.image.load('res/textures/textures/slate_floor_03_nor_gl_4k.jpg').get_texture(),
+            program=self.program, parent=blend_group
+        )
+
         self.material_ubo = self.program.uniform_blocks['MaterialBlock'].create_ubo()
-        material_group = MaterialGroup(self.material_ubo, parent=texture_group, shininess=32, env_mapping_mode=0, specular=(0.0, 0.0, 0.0, 1.0), bump_strength=0.5)
+        self.material_group = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=1.0, shininess=128, bump_strength=0.2, f0_reflectance=0.04)
+        self.sphere1 = Sphere(self.program, self.batch, self.material_group, Vec3(0, 0, 0), radius=150, lat_segments=32)
 
-        material_group2 = MaterialGroup(self.material_ubo, parent=texture_group, shininess=256, env_mapping_mode=1, bump_strength=0.25)
-        """TODO individual rendering flags per material?"""
+        terrain_group = MaterialGroup(self.material_ubo, parent=terrain_texture, shininess=128, bump_strength=0.2, specular=0, reflection_strength=1.0)
+        self.terrain = load_mesh('res/model/terrain/models/mars/terrain/mars.OBJ', self.program, self.batch, terrain_group, False, position=(10000, -5000, -10000), scale=10, tex_scale=5)
 
-        #self.plane = GridMesh(self.program, self.batch, 1000, 1000, position=Vec3(0, -500, 0), columns=100, rows=100, group=material_group2)
-        self.terrain = load_mesh('res/model/terrain/models/mars/terrain/mars.OBJ', self.program, self.batch, material_group, False, position=(10000, -5000, -10000), scale=10, tex_scale=3)
-
-        self.sphere1 = Sphere(self.program, self.batch, material_group2, Vec3(0, 0, 0), radius=150, lat_segments=32)
-        #self.label = pyglet.text.Label("Claude Sphere", x=self.sphere1.position.x, y=250, z=self.sphere1.position.z, font_size=20, batch=self.batch, group=blend_group)
-
-
+        material_group2 = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=1, shininess=128, bump_strength=1, f0_reflectance=(0.839, 0.565, 0.255, 1.0))
         self.meshes = [
             load_mesh(
                 'res/model/vessel.obj', self.program, self.batch, material_group2,
-                position=(i*300 + 300, 0, 0), scale=0.5, tex_scale=3, add_tangents=True
+                position=(i*300 + 300, 0, 0), scale=0.5, tex_scale=3, add_tangents=True, color=(0.0, 0.0, 0.0, 1.0)
             ) for i in range(1)
         ]
 
-
-
         self.mesh_x = 0.0
         self.mesh_y = 0.0
+        self.mesh_z = 0.0
 
-        # self.program['rendering_dynamic_object'] = True
         self.program['shadow_mapping'] = False
-        #self.program['environment_mapping'] = False
         self.program['normal_mapping'] = False
+        self.draw_skybox = True
+        self.wireframe = False
+        self.run = True
 
         glEnable(GL_DEPTH_TEST)
 
@@ -93,8 +97,10 @@ class App(pyglet.window.Window):
 
             #self.program['refractive_index'] = 1.52 + 0.5 * math.cos(self.time)
 
-        self.program['view_position'] = self.camera.position
-        #self.program['time'] = self.time*0.1
+        with self.ubo as ubo:
+            ubo.view_position = self.camera.position
+            ubo.time = self.time
+
         self.clear()
 
         if self.wireframe:
@@ -141,11 +147,16 @@ class App(pyglet.window.Window):
                 self.program['fresnel'] = not self.program['fresnel']
 
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
+        if buttons == pyglet.window.mouse.RIGHT:
+            self.material_group.bump_strength += dy*0.02
         if buttons == pyglet.window.mouse.LEFT:
-            self.mesh_x += dx
-            self.mesh_y += dy
+            if modifiers & pyglet.window.key.LSHIFT:
+                self.mesh_y += dy
+            else:
+                self.mesh_x += dx
+                self.mesh_z -= dy
             for mesh in self.meshes:
-                mesh.matrix = Mat4.from_translation(Vec3(self.mesh_x, 0, -self.mesh_y))
+                mesh.matrix = Mat4.from_translation(Vec3(self.mesh_x, self.mesh_y, self.mesh_z))
 
 
 if __name__ == '__main__':

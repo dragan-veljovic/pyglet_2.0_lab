@@ -22,6 +22,10 @@ out mat3 TBN;
 uniform WindowBlock {
     mat4 projection;
     mat4 view;
+    vec3 view_position;
+    float time;
+    float z_far;
+    float fade_length;
 } window;
 
 layout(std140) uniform LightBlock {
@@ -38,8 +42,6 @@ layout(std140) uniform LightBlock {
     vec4 specular;
 } light;
 
-uniform float time;
-
 // instance rendering
 uniform bool instance_rendering = false;
 // dynamic rendering
@@ -51,8 +53,6 @@ uniform vec3 model_position = vec3(0.0);
 uniform vec3 model_rotation = vec3(0.0);
 uniform vec3 model_scale = vec3(1.0);
 uniform vec3 model_origin = vec3(0.0);
-
-
 
 mat4 get_model_matrix(
         vec3 model_position,
