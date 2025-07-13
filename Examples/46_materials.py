@@ -1,22 +1,20 @@
 import pyglet.graphics
 
-import tools.lighting
 from tools.definitions import *
 from tools.model import *
 from tools.camera import Camera3D
 from tools.lighting import DirectionalLight
 from tools.skybox import Skybox
-from tools.interface import MousePicker
 
 import pyglet
 
 settings = {
-    'default_mode': True,
+    'default_mode': False,
     'width': 1280,
     'height': 720,
     'config': get_config(samples=2),
     'vsync': False,
-    'fullscreen': True,
+    'fullscreen': False,
     'resizable': True
 }
 
@@ -35,7 +33,6 @@ class App(pyglet.window.Window):
         center_window(self)
 
         self.camera = Camera3D(self, z_far=12000, speed=20)
-        self.mouse_picker = MousePicker(self, self.camera, batch=self.batch)
         self.ubo = self.program.uniform_blocks['WindowBlock'].create_ubo()
 
         with self.ubo as ubo:
@@ -72,13 +69,20 @@ class App(pyglet.window.Window):
         )
 
         self.material_ubo = self.program.uniform_blocks['MaterialBlock'].create_ubo()
-        self.material_group = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=0.5, shininess=4, bump_strength=1, f0_reflectance=0.04, specular=0.2, diffuse=0.10)
+
+        self.material_group = MaterialGroup(
+            self.material_ubo, parent=terrain_texture,
+            reflection_strength=0.5, shininess=4, bump_strength=1, f0_reflectance=0.04, specular=0.2, diffuse=0.10
+        )
         self.sphere1 = Sphere(self.program, self.batch, self.material_group, Vec3(0, 0, 0), radius=150, lat_segments=32)
 
         terrain_group = MaterialGroup(self.material_ubo, parent=terrain_texture, shininess=128, bump_strength=0.2, specular=0, reflection_strength=0.0)
         self.terrain = load_mesh('res/model/terrain/models/mars/terrain/mars.OBJ', self.program, self.batch, terrain_group, True, position=(10000, -5000, -10000), scale=10, tex_scale=5)
 
-        self.material_group2 = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=1, shininess=128, bump_strength=0.25, f0_reflectance=(0.839, 0.565, 0.255, 1.0))
+        self.material_group2 = MaterialGroup(
+            self.material_ubo, parent=terrain_texture, reflection_strength=1,
+            shininess=128, bump_strength=0.25, f0_reflectance=(0.839, 0.565, 0.255, 1.0)
+        )
         self.meshes = [
             load_mesh(
                 'res/model/vessel.obj', self.program, self.batch, self.material_group2,
@@ -109,10 +113,8 @@ class App(pyglet.window.Window):
     def on_draw(self):
         if self.run:
             self.time = self.clock.time() - self.start_time
-            #self.cube.matrix = get_model_matrix(Vec3(0, 0, 0), self.time*0.1, rotation_dir=Vec3(0, 1, 0).normalize(), origin=self.cube.position)
             self.sphere1.matrix = get_model_matrix(Vec3(0, 0, 0), self.time*0.1, rotation_dir=Vec3(0, 1, 0).normalize(), origin=self.sphere1.position)
 
-            #self.mesh.matrix = pyglet.math.Mat4.from_rotation(-math.sin(self.time), Vec3(0, 1, 0)) @ Mat4.from_scale(Vec3(1, 1 + 0.5*math.sin(self.time), 1))
 
             #self.program['refractive_index'] = 1.52 + 0.5 * math.cos(self.time)
 
@@ -177,10 +179,6 @@ class App(pyglet.window.Window):
                 self.mesh_z -= dy
             for mesh in self.meshes:
                 mesh.matrix = Mat4.from_translation(Vec3(self.mesh_x, self.mesh_y, self.mesh_z))
-
-    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
-        if button == pyglet.window.mouse.LEFT:
-            self.mouse_picker.get_mouse_ray().draw()
 
 
 if __name__ == '__main__':

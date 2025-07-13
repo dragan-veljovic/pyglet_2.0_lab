@@ -55,7 +55,6 @@ def start_app(
         default_mode=False,
         enable_console=False,
         fps: int | None = None,
-        window_centered=True,
         **kwargs
 ) -> Window:
     """
@@ -63,15 +62,13 @@ def start_app(
 
     :param window_ref: A reference to your pyglet.window.Window subclass to start.
     :param default_mode: Create window at current desktop resolution, run in fullscreen at max refresh rate.
-    :param enable_console:
-        Start interactive console for real-time attribute changes.
-        This may require starting app from your terminal (python main.py).
+    :param enable_console: Start interactive console for real-time attribute changes.
+        This may require starting app from your terminal ('python main.py').
         If you run through Pycharm, check "Edit Configurations -> Execution -> Emulate terminal in output console".
     :param fps: Custom desired fps at which to run pyglet loop. Defaults to 60 if left 'None'.
         It will get overridden with your monitor's max refresh rate if 'default_mode = True'.
     :param kwargs: Any other kwargs to be passed to 'Window' class during its creation.
     :param window_centered: Created 'Window' will be centered, if its resolution is less that the default screen's.
-
 
     :return: your custom pyglet.window.Window subclass
 
@@ -108,9 +105,6 @@ def start_app(
 
     app = window_ref(**kwargs)
 
-    if window_centered:
-        center_window(app)
-
     def start_console() -> None:
         """
         App instance can be accessed with variable 'app' or 'self' in console, for convenient attribute changes.
@@ -128,7 +122,43 @@ def start_app(
     return app
 
 
-def get_default_shader_program() -> ShaderProgram:
+def get_default_shaders_program():
+    default_vert_content = """
+        #version 330 core
+        in vec3 position;
+        in vec4 color;
+        out vec4 frag_color;
+    
+        uniform WindowBlock
+            {
+                mat4 projection;
+                mat4 view;
+            } window;
+    
+        void main() {
+            vec3 new_position = position;
+            gl_Position = window.projection * window.view * vec4(new_position, 1.0);
+            frag_color = color;
+        }
+    """
+
+    default_frag_content = """
+    #version 330 core
+    in vec4 frag_color;
+    out vec4 final_color;
+    
+    void main() {
+        final_color = frag_color;
+    }
+    """
+
+    return ShaderProgram(
+        Shader(default_vert_content, 'vertex'),
+        Shader(default_frag_content, 'fragment')
+    )
+
+
+def create_default_shader_program_from_files() -> ShaderProgram:
     """
     Get shader program from default.vert and default.frag files, if they exist in root's "shaders" folder.
     If files (or folder) is not found, they are created.
@@ -146,10 +176,9 @@ def get_default_shader_program() -> ShaderProgram:
         default_vert_content = textwrap.dedent("""\
             #version 330 core
             in vec3 position;
-            in vec4 colors;
-            out vec4 vertex_colors;
-
-            uniform float time;
+            in vec4 color;
+            
+            out vec4 frag_color;
 
             uniform WindowBlock
                 {
@@ -160,7 +189,7 @@ def get_default_shader_program() -> ShaderProgram:
             void main() {
                 vec3 new_position = position;
                 gl_Position = window.projection * window.view * vec4(new_position, 1.0);
-                vertex_colors = colors;
+                frag_color = color;
             }
         """)
         with open(vert_file, 'w') as file:
@@ -169,13 +198,11 @@ def get_default_shader_program() -> ShaderProgram:
     if not frag_file.exists():
         default_frag_content = textwrap.dedent("""\
             #version 330 core
-            in vec4 vertex_colors;
-            out vec4 final_colors;
-
-            uniform float time;
+            in vec4 frag_color;
+            out vec4 final_color;
 
             void main() {
-                final_colors = vertex_colors;
+                final_color = frag_color;
             }
         """)
         with open(frag_file, 'w') as file:
@@ -190,7 +217,7 @@ def get_default_shader_program() -> ShaderProgram:
     return shader_program
 
 
-def get_shader_program(*shader_files: str, path="shaders/") -> ShaderProgram:
+def load_shader_program_from_files(*shader_files: str, path="shaders/") -> ShaderProgram:
     """Get shader program from passed shader file name[s], placed in root/shaders/ directory."""
     shaders = [pyglet.resource.shader(path + file) for file in shader_files]
     return ShaderProgram(*shaders)
