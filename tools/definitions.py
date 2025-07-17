@@ -2,7 +2,7 @@
 import textwrap
 from pathlib import Path
 import pyglet
-import timeit
+import time
 from pyglet.graphics.shader import ShaderProgram, Shader
 import logging
 from typing import Callable
@@ -223,13 +223,13 @@ def load_shader_program_from_files(*shader_files: str, path="shaders/") -> Shade
     return ShaderProgram(*shaders)
 
 
-def time_it(func_handle):
+def timed(func):
     def wrapper(*args, **kwargs):
-        start_time = timeit.default_timer()
-        result = func_handle(*args, **kwargs)
-        print(f"{func_handle.__name__} Execution time: ", timeit.default_timer() - start_time)
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        end = time.perf_counter()
+        print(f"{func.__name__} took {end - start:.6f} seconds")
         return result
-
     return wrapper
 
 

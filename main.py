@@ -86,9 +86,11 @@ class App(pyglet.window.Window):
             ) for i in range(1)
         ]
 
+        # must be implemented in Mesh
         self.mesh_x = 0.0
         self.mesh_y = 0.0
         self.mesh_z = 0.0
+        self.rotation = 0.0
 
         self.program['shadow_mapping'] = False
         self.draw_skybox = True
@@ -165,22 +167,44 @@ class App(pyglet.window.Window):
             case pyglet.window.key.F:
                 self.program['fresnel'] = not self.program['fresnel']
 
+            case pyglet.window.key.Y:
+                self.test_speed_my()
+                self.test_speed_claude()
+
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
         if buttons == pyglet.window.mouse.RIGHT:
-            self.material_group.f0_reflectance += dy*0.02
-            print(self.material_group.f0_reflectance)
+            self.rotation += dy * 0.1
         if buttons == pyglet.window.mouse.LEFT:
             if modifiers & pyglet.window.key.LSHIFT:
                 self.mesh_y += dy
             else:
                 self.mesh_x += dx
                 self.mesh_z -= dy
-            for mesh in self.meshes:
-                mesh.matrix = Mat4.from_translation(Vec3(self.mesh_x, self.mesh_y, self.mesh_z))
+
+        for mesh in self.meshes:
+            mesh.matrix = Mat4.from_translation(Vec3(self.mesh_x, self.mesh_y, self.mesh_z)) @ Mat4.from_rotation(self.rotation, Vec3(0, 0, 1))
 
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
-        if button == pyglet.window.mouse.LEFT:
-            self.mouse_picker.get_mouse_ray().draw()
+        # if button == pyglet.window.mouse.LEFT:
+            #self.mouse_picker.get_mouse_ray().draw()
+        if button == pyglet.window.mouse.MIDDLE:
+            box = self.sphere1.get_bounding_box()
+            box.draw(batch=self.batch)
+
+
+    @timed
+    def test_speed_my(self):
+        for _ in range(1000):
+            bounding_box = self.meshes[0].get_bounding_box()
+    @timed
+    def test_speed_gpt(self):
+        for _ in range(1000):
+            bounding_box = self.meshes[0].compute_aabb()
+
+    @timed
+    def test_speed_claude(self):
+        for _ in range(1000):
+            bounding_box = self.meshes[0].get_bounding_box_claude()
 
 
 if __name__ == '__main__':

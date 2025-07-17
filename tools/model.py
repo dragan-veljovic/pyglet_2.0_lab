@@ -11,6 +11,8 @@ from pyglet.math import Vec3, Mat4, Vec4
 from typing import Sequence
 from concurrent.futures import ThreadPoolExecutor
 
+from tools.interface import BoundingBox
+
 executor = ThreadPoolExecutor()
 
 import logging
@@ -144,6 +146,23 @@ class Mesh:
         data['indices'] = self._vertex_list.indices[:]
         return data
 
+    def get_bounding_box(self):
+        positions = self._vertex_list.position[:]
+
+        x_coords = positions[0::3]
+        y_coords = positions[1::3]
+        z_coords = positions[2::3]
+
+        xmin, xmax = min(x_coords), max(x_coords)
+        ymin, ymax = min(y_coords), max(y_coords)
+        zmin, zmax = min(z_coords), max(z_coords)
+
+        # for testing only, get box once apply transformation later on matrix change
+        # min = self.matrix @ Vec4(xmin, ymin, zmin, 1)
+        # max = self.matrix @ Vec4(xmax, ymax, zmax, 1)
+
+        return BoundingBox(Vec3(xmin, ymin, zmin), Vec3(xmax, ymax, zmax))
+
 
 class Plane(Mesh):
     """A rectangular plane with support for texturing and advanced lighting.
@@ -199,97 +218,6 @@ class Plane(Mesh):
 
         return positions, indices, tex_coords
 
-
-# class Sphere(Mesh):
-#     """A sphere model with support for texturing and advanced lighting."""
-#
-#     def __init__(
-#             self,
-#             program: ShaderProgram,
-#             batch: Batch,
-#             group: Group | None = None,
-#             position=Vec3(0, 0, 0),
-#             radius=50,
-#             lat_segments=16,
-#             lng_segments=32,
-#             color=(1.0, 1.0, 1.0, 1.0)
-#     ):
-#         self.position = position
-#         self.radius = radius
-#         self.lat_segments = lat_segments
-#         self.lng_segments = lng_segments
-#
-#         positions, indices, tex_coords = self._generate_vertex_data()
-#
-#         normals = calculate_normals(positions, indices)
-#         tangents, bitangents = calculate_tangents(positions, normals, tex_coords, indices)
-#
-#         data = {
-#             'indices': indices,
-#             'position': positions,
-#             'tex_coord': tex_coords,
-#             'color': color * (len(positions) // 3),
-#             'normal': normals,
-#             'tangent': tangents,
-#             'bitangent': bitangents
-#         }
-#
-#         super().__init__(data, program, batch, group)
-#
-#     def _generate_vertex_data(self) -> tuple:
-#         """Generate vertices, indices, and texture coordinates in a single pass."""
-#         vertices = []
-#         tex_coords = []
-#         indices = []
-#
-#         x, y, z = self.position.x, self.position.y, self.position.z
-#
-#         # Generate vertices, texture coordinates, and indices in a single loop
-#         for lat in range(self.lat_segments + 1):
-#             # Latitude angle from 0 to π (top to bottom)
-#             lat_angle = math.pi * lat / self.lat_segments
-#             sin_lat = math.sin(lat_angle)
-#             cos_lat = math.cos(lat_angle)
-#             v = lat / self.lat_segments
-#
-#             for lng in range(self.lng_segments + 1):
-#                 # Longitude angle from 0 to 2π (around)
-#                 lng_angle = 2 * math.pi * lng / self.lng_segments
-#                 sin_lng = math.sin(lng_angle)
-#                 cos_lng = math.cos(lng_angle)
-#
-#                 # Calculate vertex position
-#                 vertex_x = x + self.radius * sin_lat * cos_lng
-#                 vertex_y = y + self.radius * cos_lat
-#                 vertex_z = z + self.radius * sin_lat * sin_lng
-#
-#                 vertices.extend([vertex_x, vertex_y, vertex_z])
-#
-#                 # Calculate texture coordinates
-#                 u = min(lng / self.lng_segments, 1.0)
-#                 tex_coords.extend([u, v])
-#
-#                 # Generate indices (skip last longitude segment and last latitude segment)
-#                 if lat < self.lat_segments and lng < self.lng_segments:
-#                     # Current vertex and next vertex indices
-#                     current = lat * (self.lng_segments + 1) + lng
-#                     next_lng = lat * (self.lng_segments + 1) + lng + 1
-#                     next_lat = (lat + 1) * (self.lng_segments + 1) + lng
-#                     next_both = (lat + 1) * (self.lng_segments + 1) + lng + 1
-#
-#                     # Skip triangles at the poles to avoid degenerate triangles
-#                     if lat == 0:
-#                         # Top cap - only create one triangle per segment
-#                         indices.extend([current, next_both, next_lat])
-#                     elif lat == self.lat_segments - 1:
-#                         # Bottom cap - only create one triangle per segment
-#                         indices.extend([current, next_lng, next_both])
-#                     else:
-#                         # Middle sections - create two triangles per quad
-#                         indices.extend([current, next_lng, next_both])
-#                         indices.extend([current, next_both, next_lat])
-#
-#         return tuple(vertices), tuple(indices), tuple(tex_coords)
 
 class Sphere(Mesh):
     """A sphere model with support for texturing and advanced lighting."""

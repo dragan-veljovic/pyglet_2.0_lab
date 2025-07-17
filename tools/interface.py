@@ -30,8 +30,7 @@ class Ray:
         if not self._program:
             self._program = get_default_shaders_program()
         if not self._batch:
-            self._batch = pyglet.graphics.Batch()
-
+            self._batch = Batch()
         if self.vertex_list:
             self.vertex_list.position[:] = positions
         else:
@@ -43,6 +42,26 @@ class Ray:
 
     def delete(self):
         self.vertex_list.delete()
+
+
+class BoundingBox:
+    def __init__(self, min_corner: Vec3, max_corner: Vec3):
+        self.min = min_corner
+        self.max = max_corner
+
+    def center(self) -> Vec3:
+        return (self.min + self.max) * 0.5
+
+    def size(self) -> Vec3:
+        return self.max - self.min
+
+    def __contains__(self, point: Vec3):
+        return all(self.min[i] <= point[i] <= self.max[i] for i in range(3))
+
+    # For testing purposes only
+    def draw(self, program=None, batch=None, group=None):
+        ray = Ray(self.size(), self.min, 1.0, program, batch, group)
+        ray.draw()
 
 
 class MousePicker:
