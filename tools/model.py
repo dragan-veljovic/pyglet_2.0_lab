@@ -60,13 +60,77 @@ class Mesh:
         self._dynamic = dynamic
         self._vertex_list = get_vertex_list(data, self._program, self._batch, self._group)
 
-        self.matrix = Mat4()
+        # transformation parameters
+        self._matrix = Mat4()
+        self._position = None
+        self._rotation = None
+        self._rotation_dir = None
+        self._scale = None
+        self._origin = None
+        self._dirty = False
+
+    @property
+    def matrix(self):
+        """Matrix is updated through self._group, before draw,
+        and only if any positional parameter has been changed."""
+        if self._dirty:
+            self._matrix = get_model_matrix(
+                self._position, self._rotation, self._rotation_dir, self._scale, self._origin
+            )
+            self._dirty = False
+
+        return self._matrix
+
+    @property
+    def position(self):
+        return self._position
+
+    @position.setter
+    def position(self, value: Vec3):
+        self._position = value
+        self._dirty = True
+
+    @property
+    def rotation(self):
+        return self._rotation
+
+    @rotation.setter
+    def rotation(self, value: float):
+        self._rotation = value
+        self._dirty = True
+
+    @property
+    def rotation_dir(self):
+        return self._rotation_dir
+
+    @rotation_dir.setter
+    def rotation_dir(self, value: Vec3):
+        self._rotation_dir = value
+        self._dirty = True
+
+    @property
+    def scale(self):
+        return self._scale
+
+    @scale.setter
+    def scale(self, value: Vec3):
+        self._scale = value
+        self._dirty = True
+
+    @property
+    def origin(self):
+        return self._origin
+
+    @origin.setter
+    def origin(self, value: Vec3):
+        self._origin = value
+        self._dirty = True
 
     def freeze(self):
         """
         Bake current transformation into the vertex data, making 3D object static in the scene.
         This eliminates need for shader uniform update on every frame, but requires high one-time CPU work.
-        Static meshes can be made dynamic or static again on demand with Mesh.unfreeze().
+        Static meshes can be made dynamic or static again on demand with unfreeze() or freeze() methods respectively.
         """
         if not self._dynamic:
             return
@@ -120,7 +184,7 @@ class Mesh:
 
         self._dynamic = False
         self._data = None  # free system memory
-        self.matrix = Mat4()
+        self._matrix = Mat4()
 
     def unfreeze(self):
         """
@@ -158,10 +222,12 @@ class Mesh:
         zmin, zmax = min(z_coords), max(z_coords)
 
         # for testing only, get box once apply transformation later on matrix change
-        # min = self.matrix @ Vec4(xmin, ymin, zmin, 1)
-        # max = self.matrix @ Vec4(xmax, ymax, zmax, 1)
+        # problems are visible with rotation
+        minimum = self.matrix @ Vec4(xmin, ymin, zmin, 1)
+        maximum = self.matrix @ Vec4(xmax, ymax, zmax, 1)
+        return BoundingBox(Vec3(minimum.x, minimum.y, minimum.z), Vec3(maximum.x, maximum.y, maximum.z))
 
-        return BoundingBox(Vec3(xmin, ymin, zmin), Vec3(xmax, ymax, zmax))
+        #return BoundingBox(Vec3(xmin, ymin, zmin), Vec3(xmax, ymax, zmax))
 
 
 class Plane(Mesh):
@@ -626,8 +692,8 @@ class DynamicRenderGroup(Group):
     def __eq__(self, other: "DynamicRenderGroup"):
         return (
                 self.__class__ == other.__class__ and
-                self.mesh == other.mesh and
-                self.program == other.program and
+                self.mesh is other.mesh and
+                self.program is other.program and
                 self.parent == other.parent and
                 self.order == other.order
         )
@@ -831,17 +897,18 @@ class MaterialGroup(Group):
 
 
 def get_model_matrix(
-        position: Vec3 = None,
-        rotation_angle: float = None,
-        rotation_dir=Vec3(0, 1, 0),
-        scale: Vec3 = None,
+        position: Vec3 | None = None,
+        rotation_angle: float | None = None,
+        rotation_dir: Vec3 | None = None,
+        scale: Vec3 | None = None,
         origin: Vec3 | None = None,
 ) -> Mat4:
     """Create model matrix from given parameters, using pyglet.math builtins."""
 
     identity = Mat4()
 
-    rotation = Mat4.from_rotation(rotation_angle, rotation_dir) if rotation_angle else identity
+    rot_dir = rotation_dir.normalize() or Vec3(0, 1, 0)
+    rotation = Mat4.from_rotation(rotation_angle, rot_dir) if rotation_angle else identity
     scale = Mat4.from_scale(scale) if scale is not None else identity
     translation = Mat4.from_translation(position) if position is not None else identity
 

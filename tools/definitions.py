@@ -27,7 +27,6 @@ def set_background_color(r: int = 20, g: int = 30, b: int = 40, a=255):
 
 
 def center_window(window: pyglet.window.Window):
-    pass
     """ Centers passed window if entire window can fit in a current display resolution."""
     desk_res = pyglet.display.get_display().get_default_screen()
     width, height = window.width, window.height

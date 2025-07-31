@@ -6,17 +6,17 @@ from tools.model import *
 from tools.camera import Camera3D
 from tools.lighting import DirectionalLight
 from tools.skybox import Skybox
-from tools.interface import MousePicker
+from tools.interface import *
 
 import pyglet
 
 settings = {
-    'default_mode': True,
-    'width': 1280,
-    'height': 720,
+    'default_mode': False,
+    'width': 1920,
+    'height': 1080,
     'config': get_config(samples=2),
     'vsync': False,
-    'fullscreen': True,
+    'fullscreen': False,
     'resizable': True
 }
 
@@ -24,6 +24,8 @@ settings = {
 class App(pyglet.window.Window):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        center_window(self)
+
         pyglet.resource.path.append('res')
         pyglet.resource.reindex()
         self.batch = pyglet.graphics.Batch()
@@ -32,9 +34,8 @@ class App(pyglet.window.Window):
             pyglet.resource.shader('res/shaders/dev.vert', 'vertex'),
             pyglet.resource.shader('res/shaders/dev.frag', 'fragment')
         )
-        center_window(self)
 
-        self.camera = Camera3D(self, z_far=12000, speed=20)
+        self.camera = Camera3D(self, z_far=12000, speed=10)
         self.mouse_picker = MousePicker(self, self.camera, batch=self.batch)
         self.ubo = self.program.uniform_blocks['WindowBlock'].create_ubo()
 
@@ -43,8 +44,6 @@ class App(pyglet.window.Window):
             ubo.view = self.view
             ubo.z_far = self.camera.z_far
             ubo.fade_length = 2000
-            ubo.projection = self.projection
-            ubo.view = self.view
 
         self.time = 0.0
         self.clock = pyglet.clock.Clock()
@@ -58,33 +57,38 @@ class App(pyglet.window.Window):
         shader_group = pyglet.graphics.ShaderGroup(self.program)
         blend_group = BlendGroup(parent=shader_group)
 
-        terrain_texture = DiffuseNormalTextureGroup(
-            diffuse=pyglet.image.load('res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg').get_texture(),
-            normal=pyglet.image.load(
-               'res/textures/textures/painted_plaster_wall_nor_gl_1k.jpg').get_texture(),
+        # terrain_texture = DiffuseNormalTextureGroup(
+        #     diffuse=pyglet.image.load('res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg').get_texture(),
+        #     normal=pyglet.image.load(
+        #        'res/textures/textures/painted_plaster_wall_nor_gl_1k.jpg').get_texture(),
+        #     program=self.program, parent=blend_group
+        # )
+
+        material_texture = DiffuseNormalTextureGroup(
+            pyglet.image.load('res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg').get_texture(),
+            normal=pyglet.image.load('res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_nor_gl_2k.jpg').get_texture(),
             program=self.program, parent=blend_group
         )
 
-        material_texture = DiffuseNormalTextureGroup(
-            pyglet.image.load('res/textures/textures/slate_floor_03_diff_4k.jpg').get_texture(),
-            normal=pyglet.image.load('res/textures/textures/slate_floor_03_nor_gl_4k.jpg').get_texture(),
-            program=self.program, parent=blend_group
-        )
+        terrain_texture = material_texture
 
         self.material_ubo = self.program.uniform_blocks['MaterialBlock'].create_ubo()
         self.material_group = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=0.5, shininess=4, bump_strength=1, f0_reflectance=0.04, specular=0.2, diffuse=0.10)
-        self.sphere1 = Sphere(self.program, self.batch, self.material_group, Vec3(0, 0, 0), radius=150, lat_segments=32)
 
         terrain_group = MaterialGroup(self.material_ubo, parent=terrain_texture, shininess=128, bump_strength=0.2, specular=0, reflection_strength=0.0)
-        self.terrain = load_mesh('res/model/terrain/models/mars/terrain/mars.OBJ', self.program, self.batch, terrain_group, True, position=(10000, -5000, -10000), scale=10, tex_scale=5)
+        #self.terrain = load_mesh('res/model/terrain/models/mars/terrain/mars.OBJ', self.program, self.batch, terrain_group, True, position=(10000, -5000, -10000), scale=10, tex_scale=5)
 
         self.material_group2 = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=1, shininess=128, bump_strength=0.25, f0_reflectance=(0.839, 0.565, 0.255, 1.0))
         self.meshes = [
             load_mesh(
                 'res/model/vessel.obj', self.program, self.batch, self.material_group2,
                 position=(i*300 + 300, 0, 0), scale=0.5, tex_scale=3, add_tangents=True
-            ) for i in range(1)
+            ) for i in range(3)
         ]
+
+        self.meshes.append(Sphere(self.program, self.batch, self.material_group, Vec3(0, 0, 0), radius=150, lat_segments=32))
+        self.sphere1 = self.meshes[-1]
+        self.sphere1.rotation = 0.0
 
         # must be implemented in Mesh
         self.mesh_x = 0.0
@@ -99,8 +103,10 @@ class App(pyglet.window.Window):
 
         glEnable(GL_DEPTH_TEST)
         self.camera.toggle_fps_controls()
+        self.bounding_box = None
+        self.selected = None
 
-        print(self.batch.group_children)
+        # print(self.batch.group_children)
 
     def on_activate(self):
         self.camera.toggle_fps_controls()
@@ -108,15 +114,33 @@ class App(pyglet.window.Window):
     def on_deactivate(self):
         self.camera.toggle_fps_controls()
 
+    def select(self):
+        min_dist = float('inf')
+        closest = None
+
+        for mesh in self.meshes:
+            ray = self.mouse_picker.get_mouse_ray()
+            bbox = mesh.get_bounding_box()
+            hit, dist = ray_intersects_aabb(ray._origin, ray._direction, bbox)
+            if hit and dist < min_dist:
+                closest = mesh
+                min_dist = dist
+
+        if closest:
+            if self.bounding_box:
+                self.bounding_box.delete()
+
+            self.bounding_box = closest.get_bounding_box()
+            self.bounding_box.draw(batch=self.batch)
+            self.selected = closest
+
     def on_draw(self):
         if self.run:
             self.time = self.clock.time() - self.start_time
-            #self.cube.matrix = get_model_matrix(Vec3(0, 0, 0), self.time*0.1, rotation_dir=Vec3(0, 1, 0).normalize(), origin=self.cube.position)
-            self.sphere1.matrix = get_model_matrix(Vec3(0, 0, 0), self.time*0.1, rotation_dir=Vec3(0, 1, 0).normalize(), origin=self.sphere1.position)
+            self.sphere1.rotation += 0.01
+            ### Create meshes with dynamic positioning, don't use transformed data!
+            self.meshes[0].rotation_dir = ...
 
-            #self.mesh.matrix = pyglet.math.Mat4.from_rotation(-math.sin(self.time), Vec3(0, 1, 0)) @ Mat4.from_scale(Vec3(1, 1 + 0.5*math.sin(self.time), 1))
-
-            #self.program['refractive_index'] = 1.52 + 0.5 * math.cos(self.time)
 
         with self.ubo as ubo:
             ubo.view_position = self.camera.position
@@ -167,10 +191,6 @@ class App(pyglet.window.Window):
             case pyglet.window.key.F:
                 self.program['fresnel'] = not self.program['fresnel']
 
-            case pyglet.window.key.Y:
-                self.test_speed_my()
-                self.test_speed_claude()
-
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
         if buttons == pyglet.window.mouse.RIGHT:
             self.rotation += dy * 0.1
@@ -181,31 +201,20 @@ class App(pyglet.window.Window):
                 self.mesh_x += dx
                 self.mesh_z -= dy
 
-        for mesh in self.meshes:
-            mesh.matrix = Mat4.from_translation(Vec3(self.mesh_x, self.mesh_y, self.mesh_z)) @ Mat4.from_rotation(self.rotation, Vec3(0, 0, 1))
+            mesh = self.selected
+            if mesh:
+                if mesh.position:
+                    mesh.position += Vec3(dx, 0.0, -dy)
+                else:
+                    mesh.position = Vec3(dx, 0.0, -dy)
 
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
-        # if button == pyglet.window.mouse.LEFT:
-            #self.mouse_picker.get_mouse_ray().draw()
+        if button == pyglet.window.mouse.LEFT:
+            self.select()
+
         if button == pyglet.window.mouse.MIDDLE:
-            box = self.sphere1.get_bounding_box()
+            box = self.meshes[0].get_bounding_box()
             box.draw(batch=self.batch)
-
-
-    @timed
-    def test_speed_my(self):
-        for _ in range(1000):
-            bounding_box = self.meshes[0].get_bounding_box()
-    @timed
-    def test_speed_gpt(self):
-        for _ in range(1000):
-            bounding_box = self.meshes[0].compute_aabb()
-
-    @timed
-    def test_speed_claude(self):
-        for _ in range(1000):
-            bounding_box = self.meshes[0].get_bounding_box_claude()
-
 
 if __name__ == '__main__':
     app = start_app(App, fps=120, enable_console=True, **settings)
