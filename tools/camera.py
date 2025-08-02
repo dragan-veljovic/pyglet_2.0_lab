@@ -177,6 +177,8 @@ class Camera3D:
         self.on_resize(window.width, window.height)
         self._update_view()
 
+        self.toggle_key = pyglet.window.key.SPACE
+
     def save_view(self):
         self._saved_view = {
             "front": self._front, "target": self._target, "position": self._position,
@@ -251,7 +253,7 @@ class Camera3D:
 
     def on_key_press(self, symbol, modifiers):
         """Toggle camera's FPS style controls with CTRL+C"""
-        if symbol == pyglet.window.key.C and modifiers & pyglet.window.key.MOD_CTRL:
+        if symbol == self.toggle_key:
             self.toggle_fps_controls()
 
     def _check_keys(self):

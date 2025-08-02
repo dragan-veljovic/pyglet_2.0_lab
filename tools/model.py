@@ -45,8 +45,8 @@ class Mesh:
 
         TODO: "dynamic" as a property instead of two methods?
         TODO: inefficient freeze(), a lot of Vec4s, adjusted transform_model_data() should work with dict directly.
-        TODO: position, rotation... params for automatic matrix generation? Passed update() method to call before draw?
         TODO: another group updating uniform (block?) of parameters, allowing for transformation on the GPU
+        TODO: trans param added, but what happens with them when model if freezed?
         """
 
         self._data = data if dynamic else None
@@ -62,11 +62,11 @@ class Mesh:
 
         # transformation parameters
         self._matrix = Mat4()
-        self._position = None
-        self._rotation = None
-        self._rotation_dir = None
-        self._scale = None
-        self._origin = None
+        self._position = Vec3(0, 0, 0)
+        self._rotation = 0.0
+        self._rotation_dir = Vec3(0, 1, 0)
+        self._scale = Vec3(1.0, 1.0, 1.0)
+        self._origin = Vec3(0, 0, 0)
         self._dirty = False
 
     @property
@@ -80,6 +80,10 @@ class Mesh:
             self._dirty = False
 
         return self._matrix
+
+    # debug
+    def update_matrix(self):
+        a = self.matrix
 
     @property
     def position(self):
@@ -135,8 +139,8 @@ class Mesh:
         if not self._dynamic:
             return
 
-        transform_matrix = self.matrix
-        adjusted_transform_matrix = self.matrix.__invert__().transpose()
+        transform_matrix = self._matrix
+        adjusted_transform_matrix = self._matrix.__invert__().transpose()
 
         transformed_positions = []
         transformed_normals = []
@@ -184,7 +188,18 @@ class Mesh:
 
         self._dynamic = False
         self._data = None  # free system memory
+
+        # debugging
         self._matrix = Mat4()
+        self._position = Vec3(0, 0, 0)
+        self._rotation = 0.0
+        self._rotation_dir = Vec3(0, 1, 0)
+        self._scale = Vec3(1.0, 1.0, 1.0)
+        self._origin = Vec3(0, 0, 0)
+        self._dirty = False
+        self.update_matrix()
+        self._program['rendering_dynamic_object'] = False
+        self._program['model_precalc'] = self._matrix
 
     def unfreeze(self):
         """
@@ -200,6 +215,16 @@ class Mesh:
 
         self._vertex_list = get_vertex_list(self._data, self._program, self._batch, self._group)
         self._dynamic = True
+
+        # debugging
+        self._matrix = Mat4()
+        self._program['model_precalc'] = self._matrix
+        self._position = Vec3(0, 0, 0)
+        self._rotation = 0.0
+        self._rotation_dir = Vec3(0, 1, 0)
+        self._scale = Vec3(1.0, 1.0, 1.0)
+        self._origin = Vec3(0, 0, 0)
+        self._dirty = False
 
     def get_vertex_data(self) -> dict:
         """Extract vertex data from the vertex list and return as a dictionary."""
@@ -591,89 +616,8 @@ class Cuboid(Mesh):
         return tex_coords
 
 
-
-
-
-
-# class DynamicModel:
-#     def __init__(
-#             self,
-#             batch: Batch,
-#             program: ShaderProgram,
-#             texture_group: Group,
-#             model_data: dict,
-#             position=Vec3(0, 0, 0),
-#             rotation: float = 0.0,
-#             rotation_dir=Vec3(0, 1, 0),
-#             scale=Vec3(1, 1, 1),
-#             origin=Vec3(0, 0, 0),
-#             transform_on_gpu=False
-#     ):
-#         self.batch = batch
-#         self.program = program
-#         self.texture_group = texture_group
-#         self.model_data = model_data
-#         self.position = position
-#         self.rotation = rotation
-#         self.rotation_dir = rotation_dir
-#         self.scale = scale
-#         self.origin = origin
-#
-#         self.render_group = DynamicRenderGroup(
-#             self, self.program, parent=self.texture_group, transform_on_gpu=transform_on_gpu
-#         )
-#
-#         self.vertex_list = get_vertex_list(self.model_data, self.program, self.batch, self.render_group)
-#
-#
-# class DynamicRenderGroup(Group):
-#     def __init__(
-#             self,
-#             model: DynamicModel,
-#             program: ShaderProgram,
-#             order=0,
-#             parent: Group = None,
-#             transform_on_gpu=False
-#     ):
-#         """
-#         Dynamically transform model on every frame.
-#         Model matrix can be calculated on the CPU or GPU (if transform_on_gpu=True).
-#         TODO: UBO!
-#         """
-#         super(DynamicRenderGroup, self).__init__(order, parent)
-#         self.model = model
-#         self.program = program
-#         self.transform_on_gpu = transform_on_gpu
-#
-#     def set_state(self) -> None:
-#         self.program['rendering_dynamic_object'] = True
-#         if self.transform_on_gpu:
-#             self.program['transform_on_gpu'] = True
-#             self.program['model_position'] = self.model.position
-#             self.program['model_rotation'] = Vec3(0, self.model.rotation, 0)
-#             self.program['model_scale'] = self.model.scale
-#         else:
-#             model_matrix = get_model_matrix(
-#                 self.model.position, self.model.rotation, self.model.rotation_dir, self.model.scale, self.model.origin
-#             )
-#             self.program['model_precalc'] = model_matrix
-#
-#     def unset_state(self) -> None:
-#         self.program['transform_on_gpu'] = False
-#         self.program['rendering_dynamic_object'] = False
-#
-#     def __eq__(self, other: Group):
-#         """ Normally every dynamic object will have unique transformation,
-#         But eq could be useful for grouping objects that move together,
-#         ex. passengers inside a bus.
-#         """
-#         return False
-#
-#     def __hash__(self):
-#         return hash((self.order, self.parent, self.program, self.model, self.transform_on_gpu))
-
-
 class DynamicRenderGroup(Group):
+    """Set shader to use CPU precalculated model matrix."""
     def __init__(self, mesh: Mesh, program: ShaderProgram, order=0, parent: Group = None):
         super().__init__(order, parent)
         self.program = program
@@ -687,7 +631,7 @@ class DynamicRenderGroup(Group):
         self.program['rendering_dynamic_object'] = False
 
     def __hash__(self):
-        return hash((self.program, self.order, self.parent))
+        return hash((self.program, self.mesh, self.order, self.parent))
 
     def __eq__(self, other: "DynamicRenderGroup"):
         return (
@@ -700,6 +644,7 @@ class DynamicRenderGroup(Group):
 
 
 class BlendGroup(Group):
+    """Blend settings group. Parent is usually ShaderGroup."""
     def __init__(
             self,
             blend_src: int = GL_SRC_ALPHA,
@@ -840,21 +785,6 @@ class MaterialGroup(Group):
         """
         If all RGB values are identical, they can be also assigned with a single float for convenience.
         For example diffuse=0.65 will be equivalent to diffuse=(0.65, 0.65, 0.65, 1.0) through internal conversion.
-
-        :param ubo:
-        :param ambient:
-        :param diffuse:
-        :param specular:
-        :param emission:
-        :param shininess:
-        :param reflection_strength:
-        :param refraction_strength:
-        :param refractive_index:
-        :param f0_reflectance:
-        :param fresnel_power:
-        :param bump_strength:
-        :param order:
-        :param parent:
         """
         super().__init__(order, parent)
         self.ubo = ubo
@@ -897,65 +827,37 @@ class MaterialGroup(Group):
 
 
 def get_model_matrix(
-        position: Vec3 | None = None,
-        rotation_angle: float | None = None,
-        rotation_dir: Vec3 | None = None,
-        scale: Vec3 | None = None,
-        origin: Vec3 | None = None,
+        position=Vec3(0, 0, 0),
+        rotation_angle=0.0,
+        rotation_dir=Vec3(0, 1, 0),
+        scale=Vec3(1, 1, 1),
+        origin=Vec3(0, 0, 0),
 ) -> Mat4:
-    """Create model matrix from given parameters, using pyglet.math builtins."""
+    """Create model matrix from given parameters, using :py:mod:`pyglet.math` builtins."""
 
     identity = Mat4()
 
-    rot_dir = rotation_dir.normalize() or Vec3(0, 1, 0)
-    rotation = Mat4.from_rotation(rotation_angle, rot_dir) if rotation_angle else identity
-    scale = Mat4.from_scale(scale) if scale is not None else identity
-    translation = Mat4.from_translation(position) if position is not None else identity
+    # translation matrix
+    translation = Mat4.from_translation(position) if position else identity
 
+    # rotation matrix
+    if rotation_angle:
+        if rotation_dir is not Vec3(0, 1, 0):
+            rotation_dir = rotation_dir.normalize()
+        rotation = Mat4.from_rotation(rotation_angle, rotation_dir)
+    else:
+        rotation = identity
+
+    # scale matrix
+    scale = Mat4.from_scale(scale) if scale is not Vec3(1, 1, 1) else identity
+
+    # compensating for origin
     if origin:
         translate_to_origin = Mat4.from_translation(-origin)
         translate_back = Mat4.from_translation(origin)
         return translate_back @ translation @ rotation @ translate_to_origin @ scale
 
     return translation @ rotation @ scale
-
-
-import numpy as np
-def get_model_matrix_np(translation, rotation_angle, rotation_axis, scale, origin):
-    def translation_matrix(offset):
-        t = np.identity(4, dtype=np.float32)
-        t[:3, 3] = offset
-        return t
-
-    def scale_matrix(scale_factors):
-        s = np.identity(4, dtype=np.float32)
-        s[0, 0], s[1, 1], s[2, 2] = scale_factors
-        return s
-
-    def rotation_matrix(angle, axis):
-        axis = np.array(axis, dtype=np.float32)  # Ensure it's a NumPy array
-        axis = axis / np.linalg.norm(axis)
-        x, y, z = axis
-        c = np.cos(angle)
-        s = np.sin(angle)
-        oc = 1.0 - c
-
-        return np.array([
-            [oc * x * x + c, oc * x * y - z * s, oc * x * z + y * s, 0.0],
-            [oc * x * y + z * s, oc * y * y + c, oc * y * z - x * s, 0.0],
-            [oc * x * z - y * s, oc * y * z + x * s, oc * z * z + c, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ], dtype=np.float32)
-
-    T_origin = translation_matrix(-origin)
-    T_back = translation_matrix(origin)
-    T_position = translation_matrix(translation)
-    S = scale_matrix(scale)
-    R = rotation_matrix(rotation_angle, rotation_axis)
-
-    # Final model matrix: T_back * T_position * R * T_origin * S
-    model_matrix = T_back @ T_position @ R @ T_origin @ S
-    return Mat4(*model_matrix.T.flatten())
 
 
 def load_mesh(
@@ -1369,6 +1271,7 @@ def transform_model_data(
     Calculates tangents, bitangents, normals (if not present)
     and applies transformations to loaded OBJ model data.
     Returns a dictionary of prepared data, ready to use with IndexedVertexList abstraction.
+    Use to hardcode transformations into vertex attributes for static objects in the scene.
     """
 
     # Create transformation matrix

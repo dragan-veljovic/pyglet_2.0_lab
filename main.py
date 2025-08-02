@@ -10,12 +10,18 @@ from tools.interface import *
 
 import pyglet
 
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Optional if using CUDA
+os.environ['NVIDIA_DRIVER_CAPABILITIES'] = 'compute,graphics'
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["QT_OPENGL"] = "desktop"
+
 settings = {
-    'default_mode': False,
-    'width': 1920,
-    'height': 1080,
+    'default_mode': True,
+    'width': 2200,
+    'height': 1200,
     'config': get_config(samples=2),
-    'vsync': False,
+    'vsync': True,
     'fullscreen': False,
     'resizable': True
 }
@@ -57,12 +63,14 @@ class App(pyglet.window.Window):
         shader_group = pyglet.graphics.ShaderGroup(self.program)
         blend_group = BlendGroup(parent=shader_group)
 
-        # terrain_texture = DiffuseNormalTextureGroup(
-        #     diffuse=pyglet.image.load('res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg').get_texture(),
-        #     normal=pyglet.image.load(
-        #        'res/textures/textures/painted_plaster_wall_nor_gl_1k.jpg').get_texture(),
-        #     program=self.program, parent=blend_group
-        # )
+        self.material_ubo = self.program.uniform_blocks['MaterialBlock'].create_ubo()
+
+        terrain_texture = DiffuseNormalTextureGroup(
+            diffuse=pyglet.image.load('res/model/cliff/base_color.png').get_texture(),
+            normal=pyglet.image.load(
+               'res/model/cliff/normalmap.png').get_texture(),
+            program=self.program, parent=blend_group
+        )
 
         material_texture = DiffuseNormalTextureGroup(
             pyglet.image.load('res/textures/rock_boulder_dry_2k/textures/rock_boulder_dry_diff_2k.jpg').get_texture(),
@@ -70,31 +78,29 @@ class App(pyglet.window.Window):
             program=self.program, parent=blend_group
         )
 
-        terrain_texture = material_texture
+        terrain_group = MaterialGroup(self.material_ubo, parent=material_texture, shininess=128, bump_strength=0.2, specular=0, reflection_strength=0.0)
+        self.material_group = MaterialGroup(self.material_ubo, parent=material_texture, reflection_strength=0.5, shininess=4, bump_strength=1, f0_reflectance=0.04, specular=0.2, diffuse=0.10)
+        self.material_group2 = MaterialGroup(self.material_ubo, parent=material_texture, reflection_strength=1, shininess=128, bump_strength=0.25, f0_reflectance=(0.839, 0.565, 0.255, 1.0))
 
-        self.material_ubo = self.program.uniform_blocks['MaterialBlock'].create_ubo()
-        self.material_group = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=0.5, shininess=4, bump_strength=1, f0_reflectance=0.04, specular=0.2, diffuse=0.10)
+        # scene
+        self.scene = []
+        # self.terrain = load_mesh('res/model/cliff/cliff_low.obj', self.program, self.batch, terrain_group, True, position=(0, -1000, 0), scale=10, tex_scale=10)
+        # self.scene.append(self.terrain)
 
-        terrain_group = MaterialGroup(self.material_ubo, parent=terrain_texture, shininess=128, bump_strength=0.2, specular=0, reflection_strength=0.0)
-        #self.terrain = load_mesh('res/model/terrain/models/mars/terrain/mars.OBJ', self.program, self.batch, terrain_group, True, position=(10000, -5000, -10000), scale=10, tex_scale=5)
+        data = transform_model_data(load_obj_model('res/model/vessel.obj'), scale=0.25)
 
-        self.material_group2 = MaterialGroup(self.material_ubo, parent=terrain_texture, reflection_strength=1, shininess=128, bump_strength=0.25, f0_reflectance=(0.839, 0.565, 0.255, 1.0))
-        self.meshes = [
-            load_mesh(
-                'res/model/vessel.obj', self.program, self.batch, self.material_group2,
-                position=(i*300 + 300, 0, 0), scale=0.5, tex_scale=3, add_tangents=True
-            ) for i in range(3)
-        ]
+        N = 2
+        for i in range(N):
+            for j in range(N):
+                for k in range(N):
+                    mesh = Mesh(data, self.program, self.batch, self.material_group2)
+                    #mesh.position = Vec3(200 + 200 * i, 200 + k*200, 200 + 200 * j)
+                    #mesh.scale = Vec3(0.25, 0.25, 0.25)
+                    self.scene.append(mesh)
 
-        self.meshes.append(Sphere(self.program, self.batch, self.material_group, Vec3(0, 0, 0), radius=150, lat_segments=32))
-        self.sphere1 = self.meshes[-1]
-        self.sphere1.rotation = 0.0
-
-        # must be implemented in Mesh
-        self.mesh_x = 0.0
-        self.mesh_y = 0.0
-        self.mesh_z = 0.0
-        self.rotation = 0.0
+        self.sphere1 = Sphere(self.program, self.batch, self.material_group, Vec3(0, 0, 0), radius=150, lat_segments=32)
+        self.sphere1.origin = self.sphere1.get_bounding_box().center()
+        self.scene.append(self.sphere1)
 
         self.program['shadow_mapping'] = False
         self.draw_skybox = True
@@ -103,7 +109,10 @@ class App(pyglet.window.Window):
 
         glEnable(GL_DEPTH_TEST)
         self.camera.toggle_fps_controls()
+
+        # binding box display and selection
         self.bounding_box = None
+        self.binding_box_group = None
         self.selected = None
 
         # print(self.batch.group_children)
@@ -115,10 +124,11 @@ class App(pyglet.window.Window):
         self.camera.toggle_fps_controls()
 
     def select(self):
+        """TODO: Make a class to manage selections."""
         min_dist = float('inf')
         closest = None
 
-        for mesh in self.meshes:
+        for mesh in self.scene:
             ray = self.mouse_picker.get_mouse_ray()
             bbox = mesh.get_bounding_box()
             hit, dist = ray_intersects_aabb(ray._origin, ray._direction, bbox)
@@ -131,16 +141,16 @@ class App(pyglet.window.Window):
                 self.bounding_box.delete()
 
             self.bounding_box = closest.get_bounding_box()
+            self.bounding_box_group = DynamicRenderGroup(closest, self.program)
             self.bounding_box.draw(batch=self.batch)
-            self.selected = closest
+
+        self.selected = closest
 
     def on_draw(self):
         if self.run:
             self.time = self.clock.time() - self.start_time
-            self.sphere1.rotation += 0.01
-            ### Create meshes with dynamic positioning, don't use transformed data!
-            self.meshes[0].rotation_dir = ...
-
+            if self.sphere1._dynamic:
+                self.sphere1.rotation += 0.01
 
         with self.ubo as ubo:
             ubo.view_position = self.camera.position
@@ -161,7 +171,7 @@ class App(pyglet.window.Window):
     def on_key_press(self, symbol: int, modifiers: int) -> None:
         super().on_key_press(symbol, modifiers)
         match symbol:
-            case pyglet.window.key.SPACE:
+            case pyglet.window.key.R:
                 self.run = not self.run
             # shader render settings
             case pyglet.window.key.M:
@@ -183,38 +193,37 @@ class App(pyglet.window.Window):
             case pyglet.window.key.B:
                 self.draw_skybox = not self.draw_skybox
             case pyglet.window.key.K:
-                for mesh in self.meshes:
-                    mesh.freeze()
+                if self.selected:
+                    self.selected.freeze()
             case pyglet.window.key.J:
-                for mesh in self.meshes:
-                    mesh.unfreeze()
+                # for mesh in self.scene:
+                #     mesh.unfreeze()
+                if self.selected:
+                    self.selected.unfreeze()
             case pyglet.window.key.F:
                 self.program['fresnel'] = not self.program['fresnel']
 
-    def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
-        if buttons == pyglet.window.mouse.RIGHT:
-            self.rotation += dy * 0.1
-        if buttons == pyglet.window.mouse.LEFT:
-            if modifiers & pyglet.window.key.LSHIFT:
-                self.mesh_y += dy
-            else:
-                self.mesh_x += dx
-                self.mesh_z -= dy
+            case pyglet.window.key.G:
+                for mesh in self.scene:
+                    mesh.freeze()
+                for mesh in self.scene:
+                    mesh.unfreeze()
 
-            mesh = self.selected
-            if mesh:
-                if mesh.position:
-                    mesh.position += Vec3(dx, 0.0, -dy)
+    def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
+        if buttons == pyglet.window.mouse.LEFT:
+            if self.selected and self.selected._dynamic:
+                if modifiers & pyglet.window.key.LSHIFT:
+                    self.selected.position += Vec3(0, dy, 0)
                 else:
-                    mesh.position = Vec3(dx, 0.0, -dy)
+                    self.selected.position += Vec3(dx, 0.0, -dy)
+
+        if buttons == pyglet.window.mouse.RIGHT:
+            if self.selected and self.selected._dynamic:
+                self.selected.rotation += dy*0.01
 
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
         if button == pyglet.window.mouse.LEFT:
             self.select()
-
-        if button == pyglet.window.mouse.MIDDLE:
-            box = self.meshes[0].get_bounding_box()
-            box.draw(batch=self.batch)
 
 if __name__ == '__main__':
     app = start_app(App, fps=120, enable_console=True, **settings)
