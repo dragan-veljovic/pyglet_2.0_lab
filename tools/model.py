@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 class Mesh:
+    _id_counter = 0
+
     def __init__(
             self,
             data: dict,
@@ -48,6 +50,8 @@ class Mesh:
         TODO: another group updating uniform (block?) of parameters, allowing for transformation on the GPU
         TODO: trans param added, but what happens with them when model if freezed?
         """
+        Mesh._id_counter += 1
+        self.id = Mesh._id_counter
 
         self._data = data if dynamic else None
         self._program = program
@@ -69,8 +73,10 @@ class Mesh:
         self._origin = Vec3(0, 0, 0)
         self._dirty = False
 
+
+
     @property
-    def matrix(self):
+    def matrix(self) -> Mat4:
         """Matrix is updated through self._group, before draw,
         and only if any positional parameter has been changed."""
         if self._dirty:
@@ -81,12 +87,8 @@ class Mesh:
 
         return self._matrix
 
-    # debug
-    def update_matrix(self):
-        a = self.matrix
-
     @property
-    def position(self):
+    def position(self) -> Vec3:
         return self._position
 
     @position.setter
@@ -95,7 +97,7 @@ class Mesh:
         self._dirty = True
 
     @property
-    def rotation(self):
+    def rotation(self) -> float:
         return self._rotation
 
     @rotation.setter
@@ -104,7 +106,7 @@ class Mesh:
         self._dirty = True
 
     @property
-    def rotation_dir(self):
+    def rotation_dir(self) -> Vec3:
         return self._rotation_dir
 
     @rotation_dir.setter
@@ -113,7 +115,7 @@ class Mesh:
         self._dirty = True
 
     @property
-    def scale(self):
+    def scale(self) -> Vec3:
         return self._scale
 
     @scale.setter
@@ -122,7 +124,7 @@ class Mesh:
         self._dirty = True
 
     @property
-    def origin(self):
+    def origin(self) -> Vec3:
         return self._origin
 
     @origin.setter
@@ -130,14 +132,20 @@ class Mesh:
         self._origin = value
         self._dirty = True
 
+    @property
+    def dynamic(self) -> bool:
+        return self._dynamic
+
     def freeze(self):
         """
-        Bake current transformation into the vertex data, making 3D object static in the scene.
+        Bake current transformations into the vertex data, making 3D object static in the scene.
         This eliminates need for shader uniform update on every frame, but requires high one-time CPU work.
         Static meshes can be made dynamic or static again on demand with unfreeze() or freeze() methods respectively.
         """
         if not self._dynamic:
             return
+
+        self._data = self.get_vertex_data()
 
         transform_matrix = self._matrix
         adjusted_transform_matrix = self._matrix.__invert__().transpose()
@@ -190,16 +198,11 @@ class Mesh:
         self._data = None  # free system memory
 
         # debugging
-        self._matrix = Mat4()
+        self.origin += self._position
         self._position = Vec3(0, 0, 0)
         self._rotation = 0.0
         self._rotation_dir = Vec3(0, 1, 0)
         self._scale = Vec3(1.0, 1.0, 1.0)
-        self._origin = Vec3(0, 0, 0)
-        self._dirty = False
-        self.update_matrix()
-        self._program['rendering_dynamic_object'] = False
-        self._program['model_precalc'] = self._matrix
 
     def unfreeze(self):
         """
@@ -215,16 +218,6 @@ class Mesh:
 
         self._vertex_list = get_vertex_list(self._data, self._program, self._batch, self._group)
         self._dynamic = True
-
-        # debugging
-        self._matrix = Mat4()
-        self._program['model_precalc'] = self._matrix
-        self._position = Vec3(0, 0, 0)
-        self._rotation = 0.0
-        self._rotation_dir = Vec3(0, 1, 0)
-        self._scale = Vec3(1.0, 1.0, 1.0)
-        self._origin = Vec3(0, 0, 0)
-        self._dirty = False
 
     def get_vertex_data(self) -> dict:
         """Extract vertex data from the vertex list and return as a dictionary."""
@@ -253,6 +246,12 @@ class Mesh:
         return BoundingBox(Vec3(minimum.x, minimum.y, minimum.z), Vec3(maximum.x, maximum.y, maximum.z))
 
         #return BoundingBox(Vec3(xmin, ymin, zmin), Vec3(xmax, ymax, zmax))
+
+    def __eq__(self, other: 'Mesh'):
+        return isinstance(other, Mesh) and self.id == other.id
+
+    def __hash__(self):
+        return hash(self.id)
 
 
 class Plane(Mesh):
