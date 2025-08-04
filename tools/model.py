@@ -11,7 +11,7 @@ from pyglet.math import Vec3, Mat4, Vec4
 from typing import Sequence
 from concurrent.futures import ThreadPoolExecutor
 
-from tools.interface import BoundingBox
+from tools.interface import BoundingBox, Selectable
 
 executor = ThreadPoolExecutor()
 
@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(name)s: %(messa
 logger = logging.getLogger(__name__)
 
 
-class Mesh:
+class Mesh(Selectable):
     _id_counter = 0
 
     def __init__(
@@ -73,7 +73,10 @@ class Mesh:
         self._origin = Vec3(0, 0, 0)
         self._dirty = False
 
+        self._min = None
+        self._max = None
 
+        super().__init__()
 
     @property
     def matrix(self) -> Mat4:
@@ -84,7 +87,6 @@ class Mesh:
                 self._position, self._rotation, self._rotation_dir, self._scale, self._origin
             )
             self._dirty = False
-
         return self._matrix
 
     @property
@@ -228,7 +230,8 @@ class Mesh:
         data['indices'] = self._vertex_list.indices[:]
         return data
 
-    def get_bounding_box(self):
+    def get_bounding_box(self) -> BoundingBox:
+        """Bounding box is calculated once, then transformed with update_bounding_box()."""
         positions = self._vertex_list.position[:]
 
         x_coords = positions[0::3]
@@ -240,12 +243,53 @@ class Mesh:
         zmin, zmax = min(z_coords), max(z_coords)
 
         # for testing only, get box once apply transformation later on matrix change
-        # problems are visible with rotation
-        minimum = self.matrix @ Vec4(xmin, ymin, zmin, 1)
-        maximum = self.matrix @ Vec4(xmax, ymax, zmax, 1)
-        return BoundingBox(Vec3(minimum.x, minimum.y, minimum.z), Vec3(maximum.x, maximum.y, maximum.z))
+        # minimum = self.matrix @ Vec4(xmin, ymin, zmin, 1)
+        # maximum = self.matrix @ Vec4(xmax, ymax, zmax, 1)
 
-        #return BoundingBox(Vec3(xmin, ymin, zmin), Vec3(xmax, ymax, zmax))
+        self._min = Vec3(xmin, ymin, zmin)
+        self._max = Vec3(xmax, ymax, zmax)
+
+        # return BoundingBox(
+        #     Vec3(minimum.x, minimum.y, minimum.z),
+        #     Vec3(maximum.x, maximum.y, maximum.z),
+        #     batch=self._batch
+
+        return BoundingBox(self._min, self._max, batch=self._batch)
+
+    def update_bounding_box(self):
+        """TODO: This works for rotation, but an optimisation disaster"""
+        # Transform all vertex positions from object to world space
+        positions = self._vertex_list.position[:]
+        transformed_positions = []
+        for i in range(0, len(positions), 3):
+            local_pos = Vec3(
+                positions[i],
+                positions[i + 1],
+                positions[i + 2],
+            )
+            world_pos = self.matrix @ Vec4(*local_pos, 1.0)
+            transformed_positions.append(Vec3(world_pos.x, world_pos.y, world_pos.z))
+
+        # Compute axis-aligned bounding box from transformed vertices
+        xs = [v.x for v in transformed_positions]
+        ys = [v.y for v in transformed_positions]
+        zs = [v.z for v in transformed_positions]
+
+        self._bounding_box._min = Vec3(min(xs), min(ys), min(zs))
+        self._bounding_box._max = Vec3(max(xs), max(ys), max(zs))
+
+
+      # def update_bounding_box(self):
+    #     """Update bounding box on Mesh transformation
+    #         TODO: seems not to work with rotationproperly
+    #     """
+    #     minimum = self.matrix @ Vec4(*self._min, 1)
+    #     maximum = self.matrix @ Vec4(*self._max, 1)
+    #
+    #     self._bounding_box._min = Vec3(minimum.x, minimum.y, minimum.z)
+    #     self._bounding_box._max = Vec3(maximum.x, maximum.y, maximum.z)
+
+
 
     def __eq__(self, other: 'Mesh'):
         return isinstance(other, Mesh) and self.id == other.id

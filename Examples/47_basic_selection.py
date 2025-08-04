@@ -1,5 +1,4 @@
 import pyglet.graphics
-from pyglet.event import EVENT_HANDLE_STATE
 
 import tools.lighting
 from tools.definitions import *
@@ -12,9 +11,9 @@ from tools.interface import *
 import pyglet
 
 settings = {
-    'default_mode': False,
-    'width': 1920,
-    'height': 1080,
+    'default_mode': True,
+    'width': 2200,
+    'height': 1200,
     'config': get_config(samples=2),
     'vsync': True,
     'fullscreen': False,
@@ -78,9 +77,9 @@ class App(pyglet.window.Window):
         self.material_group2 = MaterialGroup(self.material_ubo, parent=material_texture, reflection_strength=1, shininess=128, bump_strength=0.25, f0_reflectance=(0.839, 0.565, 0.255, 1.0))
 
         # scene
-        self.selectables = []
+        self.scene = []
         # self.terrain = load_mesh('res/model/cliff/cliff_low.obj', self.program, self.batch, terrain_group, True, position=(0, -1000, 0), scale=10, tex_scale=10)
-        # self.selectables.append(self.terrain)
+        # self.scene.append(self.terrain)
 
         data = transform_model_data(load_obj_model('res/model/vessel.obj'))
 
@@ -91,14 +90,14 @@ class App(pyglet.window.Window):
                     mesh = Mesh(data, self.program, self.batch, self.material_group2)
                     mesh.position = Vec3(200 + 200 * i, 200 + k*200, 200 + 200 * j)
                     mesh.scale = Vec3(0.25, 0.25, 0.25)
-                    self.selectables.append(mesh)
+                    self.scene.append(mesh)
 
         self.sphere1 = Sphere(self.program, self.batch, self.material_group, Vec3(0, 0, 0), radius=150, lat_segments=32)
-        self.selectables.append(self.sphere1)
+        self.scene.append(self.sphere1)
 
         self.sphere2 = Sphere(self.program, self.batch, self.material_group2, Vec3(0, 0, 0), radius=125)
         self.sphere2.position = Vec3(-300, 0, 0)
-        self.selectables.append(self.sphere2)
+        self.scene.append(self.sphere2)
 
         self.program['shadow_mapping'] = False
         self.draw_skybox = True
@@ -109,10 +108,11 @@ class App(pyglet.window.Window):
         self.camera.toggle_fps_controls()
 
         # binding box display and selection
+        self.bounding_box = None
+        self.binding_box_group = None
         self.selected = set()
-        # eliminating mouse press while dragging
-        self._mouse_pressed = False
-        self._mouse_dragging = False
+
+        # print(self.batch.group_children)
 
     def on_activate(self):
         self.camera.toggle_fps_controls()
@@ -120,57 +120,37 @@ class App(pyglet.window.Window):
     def on_deactivate(self):
         self.camera.toggle_fps_controls()
 
-    def select(self, modifiers: int):
+    def select(self, multi_select=False):
         """TODO: Make a class to manage selections."""
         min_dist = float('inf')
         closest = None
 
-        for selectable in self.selectables:
-            # Update position of binding box before selection
-            selectable.update_bounding_box()
+        for mesh in self.scene:
             ray = self.mouse_picker.get_mouse_ray()
-            hit, dist = selectable.ray_intersects_aabb(ray)
+            bbox = mesh.get_bounding_box()
+            hit, dist = ray_intersects_aabb(ray._origin, ray._direction, bbox)
             if hit and dist < min_dist:
-                closest = selectable
+                closest = mesh
                 min_dist = dist
 
         if closest:
-            # removal of already selected object
-            if modifiers == 6:  # CTRL + ALT mods pressed
-                self.selected.discard(closest)
-                closest.bounding_box.delete()
-            # adding new object to selection
-            elif modifiers == 2:  # CTRL pressed
-                self.selected.add(closest)
-            else:
-                # single selection, deselect everything else
-                for selected in self.selected:
-                    selected.bounding_box.delete()
-                self.selected = {closest}
+            if self.bounding_box:
+                self.bounding_box.delete()
+
+            self.bounding_box = closest.get_bounding_box()
+            self.bounding_box_group = DynamicRenderGroup(closest, self.program)
+            self.bounding_box.draw(batch=self.batch)
+
+        if multi_select:
+            self.selected.add(closest)
         else:
-            # empty space clicked, deselect everything
-            for selected in self.selected:
-                selected.bounding_box.delete()
-            self.selected = set()
+            self.selected = {closest}
 
     def on_draw(self):
         if self.run:
             self.time = self.clock.time() - self.start_time
             if self.sphere1.dynamic:
                 self.sphere1.rotation += 0.01
-
-            if self.sphere2.dynamic:
-                self.sphere2.scale = Vec3(1 + 0.5 * math.sin(self.time), 1 + 0.5 * math.cos(self.time), 1)
-
-        # for testing purposes, redraw all bounding boxes of selected items, by deleting and rebuilding Vlists
-        # hugely inefficient, instead all animations of binding boxes should be done in shaders
-        for selected in self.selected:
-            if selected._bounding_box._vertex_list:
-                selected._bounding_box._vertex_list.delete()
-
-            selected.update_bounding_box()
-
-            selected._bounding_box._vertex_list = selected._bounding_box._create_vertex_list()
 
         with self.ubo as ubo:
             ubo.view_position = self.camera.position
@@ -224,35 +204,28 @@ class App(pyglet.window.Window):
                     for mesh in self.selected:
                         mesh.unfreeze()
 
-    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
-        self._mouse_pressed = True
-        self._mouse_dragging = False
-
-    def on_mouse_release(self, x: int, y: int, button: int, modifiers: int):
-        if self._mouse_pressed and not self._mouse_dragging:
-            if button == pyglet.window.mouse.LEFT:
-                self.select(modifiers)
-        self._mouse_pressed = False
-        self._mouse_dragging = False
-
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
-        self._mouse_dragging = True
         if self.selected:
-            for selected in self.selected:
-                if selected.dynamic:
+            for mesh in self.selected:
+                if mesh.dynamic:
                     if buttons == pyglet.window.mouse.LEFT:
                         if modifiers & pyglet.window.key.LSHIFT:
-                            selected.position += Vec3(0.0, dy, 0.0)
+                            mesh.position += Vec3(0.0, dy, 0.0)
                         else:
-                            selected.position += Vec3(dx, 0.0, -dy)
+                            mesh.position += Vec3(dx, 0.0, -dy)
 
                     if buttons == pyglet.window.mouse.RIGHT:
-                        selected.rotation += (dy+dx)*0.005
-                        selected.rotation_dir = Vec3(1, 1, 0)
+                        mesh.rotation += (dy+dx)*0.005
 
                     if buttons == pyglet.window.mouse.MIDDLE:
-                        selected.scale += Vec3(dx*0.001, dy*0.001, 0)
+                        mesh.scale += Vec3(dx*0.001, dy*0.001, 0)
 
+    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
+        if button == pyglet.window.mouse.LEFT:
+            if modifiers & pyglet.window.key.MOD_CTRL:
+                self.select(multi_select=True)
+            else:
+                self.select()
 
 if __name__ == '__main__':
     app = start_app(App, fps=120, enable_console=True, **settings)

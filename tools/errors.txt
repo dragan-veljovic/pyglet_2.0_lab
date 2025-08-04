@@ -1,2 +1,5 @@
 Invalid operation. The specified operation is not allowed in the current state.
 - is used texture assigned to appropriate texture slot? ex. self.program['skybox'] = 5
+
+Object not drawn
+- did you pass a batch or shader program?
