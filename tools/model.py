@@ -242,54 +242,73 @@ class Mesh(Selectable):
         ymin, ymax = min(y_coords), max(y_coords)
         zmin, zmax = min(z_coords), max(z_coords)
 
-        # for testing only, get box once apply transformation later on matrix change
-        # minimum = self.matrix @ Vec4(xmin, ymin, zmin, 1)
-        # maximum = self.matrix @ Vec4(xmax, ymax, zmax, 1)
-
         self._min = Vec3(xmin, ymin, zmin)
         self._max = Vec3(xmax, ymax, zmax)
 
-        # return BoundingBox(
-        #     Vec3(minimum.x, minimum.y, minimum.z),
-        #     Vec3(maximum.x, maximum.y, maximum.z),
-        #     batch=self._batch
-
         return BoundingBox(self._min, self._max, batch=self._batch)
 
+    # def update_bounding_box(self):
+    #   """Update bounding box on Mesh transformation
+    #       TODO: seems not to work with rotation properly
+    #   """
+    #   minimum = self.matrix @ Vec4(*self._min, 1)
+    #   maximum = self.matrix @ Vec4(*self._max, 1)
+    #
+    #   self._bounding_box._min = Vec3(minimum.x, minimum.y, minimum.z)
+    #   self._bounding_box._max = Vec3(maximum.x, maximum.y, maximum.z)
+
     def update_bounding_box(self):
-        """TODO: This works for rotation, but an optimisation disaster"""
-        # Transform all vertex positions from object to world space
-        positions = self._vertex_list.position[:]
-        transformed_positions = []
-        for i in range(0, len(positions), 3):
-            local_pos = Vec3(
-                positions[i],
-                positions[i + 1],
-                positions[i + 2],
-            )
-            world_pos = self.matrix @ Vec4(*local_pos, 1.0)
-            transformed_positions.append(Vec3(world_pos.x, world_pos.y, world_pos.z))
+        # TODO: Better than mine but still off
+        corners = [
+            Vec3(self._min.x, self._min.y, self._min.z),
+            Vec3(self._max.x, self._min.y, self._min.z),
+            Vec3(self._min.x, self._max.y, self._min.z),
+            Vec3(self._max.x, self._max.y, self._min.z),
+            Vec3(self._min.x, self._min.y, self._max.z),
+            Vec3(self._max.x, self._min.y, self._max.z),
+            Vec3(self._min.x, self._max.y, self._max.z),
+            Vec3(self._max.x, self._max.y, self._max.z),
+        ]
 
-        # Compute axis-aligned bounding box from transformed vertices
-        xs = [v.x for v in transformed_positions]
-        ys = [v.y for v in transformed_positions]
-        zs = [v.z for v in transformed_positions]
+        # Transform each corner to world space
+        transformed = [self.matrix @ Vec4(corner.x, corner.y, corner.z, 1) for corner in corners]
 
+        # Extract x, y, z from transformed Vec4s
+        xs = []
+        ys = []
+        zs = []
+        for vector in transformed:
+            xs.append(vector.x)
+            ys.append(vector.y)
+            zs.append(vector.z)
+
+        # Recompute new AABB in world space
         self._bounding_box._min = Vec3(min(xs), min(ys), min(zs))
         self._bounding_box._max = Vec3(max(xs), max(ys), max(zs))
 
-
-      # def update_bounding_box(self):
-    #     """Update bounding box on Mesh transformation
-    #         TODO: seems not to work with rotationproperly
-    #     """
-    #     minimum = self.matrix @ Vec4(*self._min, 1)
-    #     maximum = self.matrix @ Vec4(*self._max, 1)
+    # def update_bounding_box(self):
+    #     """TODO: perfect but optimisation nightmare"""""
+    #     positions = self._vertex_list.position
+    #     matrix = self.matrix
     #
-    #     self._bounding_box._min = Vec3(minimum.x, minimum.y, minimum.z)
-    #     self._bounding_box._max = Vec3(maximum.x, maximum.y, maximum.z)
-
-
+    #     # Use local vars and avoid creating Vec3/Vec4 repeatedly
+    #     min_x = min_y = min_z = float("inf")
+    #     max_x = max_y = max_z = float("-inf")
+    #
+    #     for i in range(0, len(positions), 3):
+    #         x, y, z = positions[i], positions[i + 1], positions[i + 2]
+    #         wx, wy, wz, _ = matrix @ Vec4(x, y, z, 1.0)
+    #
+    #         min_x = min(min_x, wx)
+    #         min_y = min(min_y, wy)
+    #         min_z = min(min_z, wz)
+    #
+    #         max_x = max(max_x, wx)
+    #         max_y = max(max_y, wy)
+    #         max_z = max(max_z, wz)
+    #
+    #     self._bounding_box._min = Vec3(min_x, min_y, min_z)
+    #     self._bounding_box._max = Vec3(max_x, max_y, max_z)
 
     def __eq__(self, other: 'Mesh'):
         return isinstance(other, Mesh) and self.id == other.id

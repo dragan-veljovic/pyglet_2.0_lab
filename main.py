@@ -12,7 +12,7 @@ from tools.interface import *
 import pyglet
 
 settings = {
-    'default_mode': False,
+    'default_mode': True,
     'width': 1920,
     'height': 1080,
     'config': get_config(samples=2),
@@ -244,7 +244,12 @@ class App(pyglet.window.Window):
                         if modifiers & pyglet.window.key.LSHIFT:
                             selected.position += Vec3(0.0, dy, 0.0)
                         else:
-                            selected.position += Vec3(dx, 0.0, -dy)
+                            speed = 1  # tweak as needed
+                            right = Vec3(self.camera._right.x, 0, self.camera._right.z).normalize()
+                            forward = Vec3(self.camera._front.x, 0, self.camera._front.z).normalize()
+
+                            movement = (right * dx + forward * dy) * speed
+                            selected.position += movement
 
                     if buttons == pyglet.window.mouse.RIGHT:
                         selected.rotation += (dy+dx)*0.005
