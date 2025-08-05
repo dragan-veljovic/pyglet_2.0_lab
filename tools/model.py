@@ -11,7 +11,7 @@ from pyglet.math import Vec3, Mat4, Vec4
 from typing import Sequence
 from concurrent.futures import ThreadPoolExecutor
 
-from tools.interface import BoundingBox, Selectable
+from tools.interface import Selectable
 
 executor = ThreadPoolExecutor()
 
@@ -73,10 +73,7 @@ class Mesh(Selectable):
         self._origin = Vec3(0, 0, 0)
         self._dirty = False
 
-        self._min = None
-        self._max = None
-
-        super().__init__()
+        super().__init__(batch=self._batch)
 
     @property
     def matrix(self) -> Mat4:
@@ -230,7 +227,7 @@ class Mesh(Selectable):
         data['indices'] = self._vertex_list.indices[:]
         return data
 
-    def get_bounding_box(self) -> BoundingBox:
+    def get_aabb_min_max(self) -> tuple[Vec3, Vec3]:
         """Bounding box is calculated once, then transformed with update_bounding_box()."""
         positions = self._vertex_list.position[:]
 
@@ -242,10 +239,9 @@ class Mesh(Selectable):
         ymin, ymax = min(y_coords), max(y_coords)
         zmin, zmax = min(z_coords), max(z_coords)
 
-        self._min = Vec3(xmin, ymin, zmin)
-        self._max = Vec3(xmax, ymax, zmax)
+        return Vec3(xmin, ymin, zmin), Vec3(xmax, ymax, zmax)
 
-        return BoundingBox(self._min, self._max, batch=self._batch)
+
 
     # def update_bounding_box(self):
     #   """Update bounding box on Mesh transformation
@@ -257,34 +253,7 @@ class Mesh(Selectable):
     #   self._bounding_box._min = Vec3(minimum.x, minimum.y, minimum.z)
     #   self._bounding_box._max = Vec3(maximum.x, maximum.y, maximum.z)
 
-    def update_bounding_box(self):
-        # TODO: Better than mine but still off
-        corners = [
-            Vec3(self._min.x, self._min.y, self._min.z),
-            Vec3(self._max.x, self._min.y, self._min.z),
-            Vec3(self._min.x, self._max.y, self._min.z),
-            Vec3(self._max.x, self._max.y, self._min.z),
-            Vec3(self._min.x, self._min.y, self._max.z),
-            Vec3(self._max.x, self._min.y, self._max.z),
-            Vec3(self._min.x, self._max.y, self._max.z),
-            Vec3(self._max.x, self._max.y, self._max.z),
-        ]
 
-        # Transform each corner to world space
-        transformed = [self.matrix @ Vec4(corner.x, corner.y, corner.z, 1) for corner in corners]
-
-        # Extract x, y, z from transformed Vec4s
-        xs = []
-        ys = []
-        zs = []
-        for vector in transformed:
-            xs.append(vector.x)
-            ys.append(vector.y)
-            zs.append(vector.z)
-
-        # Recompute new AABB in world space
-        self._bounding_box._min = Vec3(min(xs), min(ys), min(zs))
-        self._bounding_box._max = Vec3(max(xs), max(ys), max(zs))
 
     # def update_bounding_box(self):
     #     """TODO: perfect but optimisation nightmare"""""
@@ -309,6 +278,7 @@ class Mesh(Selectable):
     #
     #     self._bounding_box._min = Vec3(min_x, min_y, min_z)
     #     self._bounding_box._max = Vec3(max_x, max_y, max_z)
+
 
     def __eq__(self, other: 'Mesh'):
         return isinstance(other, Mesh) and self.id == other.id

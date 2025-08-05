@@ -121,7 +121,7 @@ def start_app(
     return app
 
 
-def get_default_shaders_program():
+def get_default_shader_program():
     default_vert_content = """
         #version 330 core
         in vec3 position;

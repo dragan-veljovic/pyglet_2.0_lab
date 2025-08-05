@@ -3,3 +3,8 @@ Invalid operation. The specified operation is not allowed in the current state.
 
 Object not drawn
 - did you pass a batch or shader program?
+- if you pass your own Group during vertex list creation, did you shader_progam.use()?
+
+Transparency not affected by color.alpha in shaders?
+- glEnable(GL_BLEND)
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
