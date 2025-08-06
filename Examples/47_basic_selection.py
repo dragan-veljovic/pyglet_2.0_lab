@@ -12,7 +12,7 @@ from tools.interface import *
 import pyglet
 
 settings = {
-    'default_mode': False,
+    'default_mode': True,
     'width': 1920,
     'height': 1080,
     'config': get_config(samples=2),
@@ -84,7 +84,7 @@ class App(pyglet.window.Window):
 
         data = transform_model_data(load_obj_model('res/model/vessel.obj'))
 
-        N = 2
+        N = 5
         for i in range(N):
             for j in range(N):
                 for k in range(N):
@@ -119,6 +119,15 @@ class App(pyglet.window.Window):
 
     def on_deactivate(self):
         self.camera.toggle_fps_controls()
+
+    def deselect_all(self):
+        for item in self.selected:
+            item.deselect()
+
+    def select_all(self):
+        for selectable in self.selectables:
+            selectable.select()
+            self.selected.add(selectable)
 
     def select(self, modifiers: int):
         """TODO: Make a class to manage selections."""
@@ -156,6 +165,14 @@ class App(pyglet.window.Window):
                 selected.deselect()
             self.selected = set()
 
+    def visualise_actual_bounding_boxes(self):
+        for selected in self.selected:
+            vlist = selected._bounding_box._vertex_list
+            if vlist:
+                selected._bounding_box.delete()
+            selected.update_bounding_box()
+            selected._bounding_box.create_vertex_list()
+
     def on_draw(self):
         if self.run:
             self.time = self.clock.time() - self.start_time
@@ -164,6 +181,8 @@ class App(pyglet.window.Window):
 
             if self.sphere2.dynamic:
                 self.sphere2.scale = Vec3(1 + 0.5 * math.sin(self.time), 1 + 0.5 * math.cos(self.time), 1)
+
+        #self.visualise_actual_bounding_boxes()
 
         with self.ubo as ubo:
             ubo.view_position = self.camera.position
@@ -221,6 +240,9 @@ class App(pyglet.window.Window):
                 ray = self.mouse_picker.get_mouse_ray()
                 ray.create_vertex_list()
 
+        if symbol == pyglet.window.key.Z and modifiers & pyglet.window.key.MOD_CTRL:
+            self.select_all()
+
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
         self._mouse_pressed = True
         self._mouse_dragging = False
@@ -229,6 +251,9 @@ class App(pyglet.window.Window):
         if self._mouse_pressed and not self._mouse_dragging:
             if button == pyglet.window.mouse.LEFT:
                 self.select(modifiers)
+
+            if button == pyglet.window.mouse.RIGHT:
+                self.deselect_all()
         self._mouse_pressed = False
         self._mouse_dragging = False
 
@@ -257,7 +282,7 @@ class App(pyglet.window.Window):
 
 
 if __name__ == '__main__':
-    app = start_app(App, fps=120, enable_console=True, **settings)
+    app = start_app(App, fps=240, enable_console=True, **settings)
 
 
 

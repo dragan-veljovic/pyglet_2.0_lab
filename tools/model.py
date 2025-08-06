@@ -241,45 +241,6 @@ class Mesh(Selectable):
 
         return Vec3(xmin, ymin, zmin), Vec3(xmax, ymax, zmax)
 
-
-
-    # def update_bounding_box(self):
-    #   """Update bounding box on Mesh transformation
-    #       TODO: seems not to work with rotation properly
-    #   """
-    #   minimum = self.matrix @ Vec4(*self._min, 1)
-    #   maximum = self.matrix @ Vec4(*self._max, 1)
-    #
-    #   self._bounding_box._min = Vec3(minimum.x, minimum.y, minimum.z)
-    #   self._bounding_box._max = Vec3(maximum.x, maximum.y, maximum.z)
-
-
-
-    # def update_bounding_box(self):
-    #     """TODO: perfect but optimisation nightmare"""""
-    #     positions = self._vertex_list.position
-    #     matrix = self.matrix
-    #
-    #     # Use local vars and avoid creating Vec3/Vec4 repeatedly
-    #     min_x = min_y = min_z = float("inf")
-    #     max_x = max_y = max_z = float("-inf")
-    #
-    #     for i in range(0, len(positions), 3):
-    #         x, y, z = positions[i], positions[i + 1], positions[i + 2]
-    #         wx, wy, wz, _ = matrix @ Vec4(x, y, z, 1.0)
-    #
-    #         min_x = min(min_x, wx)
-    #         min_y = min(min_y, wy)
-    #         min_z = min(min_z, wz)
-    #
-    #         max_x = max(max_x, wx)
-    #         max_y = max(max_y, wy)
-    #         max_z = max(max_z, wz)
-    #
-    #     self._bounding_box._min = Vec3(min_x, min_y, min_z)
-    #     self._bounding_box._max = Vec3(max_x, max_y, max_z)
-
-
     def __eq__(self, other: 'Mesh'):
         return isinstance(other, Mesh) and self.id == other.id
 
@@ -291,7 +252,6 @@ class Plane(Mesh):
     """A rectangular plane with support for texturing and advanced lighting.
     TODO: winding problem
     """
-
     def __init__(
             self,
             program: ShaderProgram,
@@ -865,7 +825,7 @@ def get_model_matrix(
         scale=Vec3(1, 1, 1),
         origin=Vec3(0, 0, 0),
 ) -> Mat4:
-    """Create model matrix from given parameters, using :py:mod:`pyglet.math` builtins."""
+    """Creates and returns model matrix from given parameters, using :py:mod:`pyglet.math` builtins."""
 
     identity = Mat4()
 

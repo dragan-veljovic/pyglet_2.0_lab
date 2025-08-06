@@ -64,7 +64,7 @@ class Ray:
         """
         Represents a ray from an origin in a given direction and of specified length.
 
-        If ray is to be constructed from mouse inputs, as used for selection interface in 3D scene,
+        If ray is to be constructed from mouse inputs (selection interface in a 3D scene, for example),
         use :py:class:`MousePicker` helper to construct it.
 
         Visual representation of the ray can be toggled on demand through
@@ -99,6 +99,7 @@ class Ray:
         """Deletes the visual representation of the ray."""
         if self._vertex_list:
             self._vertex_list.delete()
+            self._vertex_list = None
 
     @property
     def origin(self):
@@ -115,13 +116,15 @@ class Ray:
 
 class BoundingBox:
     """
-    Simple Axis-aligned bounding box (aabb). Can be used for selection or collision mechanisms.
+    Initially, creates an axis-aligned bounding box (AABB) from provided min, max corner vectors.
+    It can be used for selection or collision mechanisms.
 
-    Normally, :py:class:`Selectable` object would create and manage its own instance of a bounding box.
-    Visualisation of a bounding box can be controlled on demand with :py:meth:`create_vertex_list`
-    and :py:meth:`delete`, which is more efficient as usually few bounding boxes are visible in the scene.
+    Bounding box can later be oriented through :py:meth:`update` and whether :py:class:`Ray` is passing through
+    its volume can be checked with :py:meth:`intersects_ray` OBB algorithm.
 
-    TODO: BoundingBox visuals currently only correctly match the actual shape in scale and position, not rotation!
+    Normally, :py:class:`Selectable` would create and manage updates of its own bounding box instance.
+    Visualisation of a bounding box can be toggled on demand with :py:meth:`create_vertex_list` and :py:meth:`delete`.
+    This is more efficient than keeping all boxes in the GPU buffer, as usually only few are visible in the scene.
     """
     def __init__(
             self,
@@ -132,8 +135,6 @@ class BoundingBox:
             group: Group = None,
             color=(1.0, 1.0, 1.0, 1.0)
     ):
-        self._min_original = min_corner
-        self._max_original = max_corner
         self._min = min_corner
         self._max = max_corner
         self._program = program
@@ -142,18 +143,18 @@ class BoundingBox:
         self._color = color
 
         # buffer data for faster updates
-        self.corners = [
+        self._original_corners = [
             # front face
-            Vec3(self._min_original.x, self._min_original.y, self._min_original.z),
-            Vec3(self._max_original.x, self._min_original.y, self._min_original.z),
-            Vec3(self._max_original.x, self._max_original.y, self._min_original.z),
-            Vec3(self._min_original.x, self._max_original.y, self._min_original.z),
+            Vec3(self._min.x, self._min.y, self._min.z),
+            Vec3(self._max.x, self._min.y, self._min.z),
+            Vec3(self._max.x, self._max.y, self._min.z),
+            Vec3(self._min.x, self._max.y, self._min.z),
 
             # back face
-            Vec3(self._min_original.x, self._min_original.y, self._max_original.z),
-            Vec3(self._max_original.x, self._min_original.y, self._max_original.z),
-            Vec3(self._max_original.x, self._max_original.y, self._max_original.z),
-            Vec3(self._min_original.x, self._max_original.y, self._max_original.z),
+            Vec3(self._min.x, self._min.y, self._max.z),
+            Vec3(self._max.x, self._min.y, self._max.z),
+            Vec3(self._max.x, self._max.y, self._max.z),
+            Vec3(self._min.x, self._max.y, self._max.z),
         ]
 
         indices = [
@@ -162,84 +163,86 @@ class BoundingBox:
             0, 4, 1, 5, 2, 6, 3, 7  # connect two faces
         ]
 
-        self._positions = [coord for idx in indices for coord in self.corners[idx]]
+        self._positions = [coord for idx in indices for coord in self._original_corners[idx]]
         self._count = len(self._positions) // 3
 
         # visual representation controlled externally on demand
         self._vertex_list = None
 
-    def center(self) -> Vec3:
-        return (self._min + self._max) * 0.5
+        # for updates and OBB algorithm
+        self._corners = self._original_corners.copy()
+        self._center_point = None
+        self._axes = []
+        self._half_lengths = []
 
-    def size(self) -> Vec3:
-        return self._max - self._min
-
-    def __contains__(self, point: Vec3):
-        return all(self._min[i] <= point[i] <= self._max[i] for i in range(3))
-
-    def intersects_ray(self, ray: Ray) -> tuple[bool, float]:
-        """
-        Check if passed :py:class:`Ray` intersects this bounding box instance.
-        Returns bool statement of the intersection, as well as length of the intersection.
-        """
-        tmin = -float('inf')
-        tmax = float('inf')
-
-        for i in range(3):
-            origin = ray.origin[i]
-            direction = ray.direction[i]
-            min_bound = self._min[i]
-            max_bound = self._max[i]
-
-            if abs(direction) < 1e-8:
-                # Ray is parallel to slab. If origin not within slab, no hit.
-                if origin < min_bound or origin > max_bound:
-                    return False, 0.0
-            else:
-                inv_d = 1.0 / direction
-                t1 = (min_bound - origin) * inv_d
-                t2 = (max_bound - origin) * inv_d
-
-                if t1 > t2:
-                    t1, t2 = t2, t1  # swap
-
-                tmin = max(tmin, t1)
-                tmax = min(tmax, t2)
-
-                if tmin > tmax:
-                    return False, 0.0
-
-        # Optional reject if tmax < 0 (box is behind ray)
-        if tmax < 0:
-            return False, 0.0
-
-        return True, tmin if tmin > 0 else tmax
+    def get_center(self) -> Vec3:
+        return sum(self._corners, Vec3(0, 0, 0)) * (1.0 / 8)
 
     def update(self, matrix: Mat4):
         """
-        Transform original box vertices with model matrix.
-        If :py:class:`Selectable` object is moved, its BoundingBox should be updated before checking intersections.
-        TODO: losing fit with rotation
+        Transform original box corners into world space using the model matrix.
+        OBB keeps these corners for later intersection tests.
         """
-        # Transform each corner to world space
-        transformed = [matrix @ Vec4(corner.x, corner.y, corner.z, 1) for corner in self.corners]
-        # Extract x, y, z from transformed Vec4s
-        xs = []
-        ys = []
-        zs = []
-        for vector in transformed:
-            xs.append(vector.x)
-            ys.append(vector.y)
-            zs.append(vector.z)
+        self._corners = [
+            (matrix @ Vec4(corner.x, corner.y, corner.z, 1)).xyz
+            for corner in self._original_corners
+        ]
 
-        # Recompute new AABB in world space
-        self._min = Vec3(min(xs), min(ys), min(zs))
-        self._max = Vec3(max(xs), max(ys), max(zs))
+        self._extract_obb_data()
+
+    def _extract_obb_data(self):
+        """
+        Recalculates center, axes, and half-lengths from transformed corners.
+        Assumes `self._corners` are up-to-date.
+        """
+        # Center of the box
+        self._center_point = self.get_center()
+
+        # Local axes: from corner 0 to corners 1, 3, 4 (right, up, forward)
+        axis_x = (self._corners[1] - self._corners[0]).normalize()
+        axis_y = (self._corners[3] - self._corners[0]).normalize()
+        axis_z = (self._corners[4] - self._corners[0]).normalize()
+
+        self._axes = [axis_x, axis_y, axis_z]
+        self._half_lengths = [
+            (self._corners[1] - self._corners[0]).length() / 2,
+            (self._corners[3] - self._corners[0]).length() / 2,
+            (self._corners[4] - self._corners[0]).length() / 2,
+        ]
+
+    def intersects_ray(self, ray: Ray) -> tuple[bool, float]:
+        """
+        Ray vs OBB intersection using the slab method (SAT).
+        Returns (hit: bool, distance: float)
+        """
+        p = self._center_point - ray.origin
+        tmin = -float("inf")
+        tmax = float("inf")
+
+        for i in range(3):
+            axis = self._axes[i]
+            e = axis.dot(p)
+            f = ray.direction.dot(axis)
+
+            if abs(f) > 1e-6:
+                t1 = (e + self._half_lengths[i]) / f
+                t2 = (e - self._half_lengths[i]) / f
+                if t1 > t2:
+                    t1, t2 = t2, t1
+                tmin = max(tmin, t1)
+                tmax = min(tmax, t2)
+                if tmin > tmax:
+                    return False, 0.0
+            else:
+                # Ray is parallel to the slab
+                if -e - self._half_lengths[i] > 0 or -e + self._half_lengths[i] < 0:
+                    return False, 0.0
+
+        return True, tmin if tmin > 0 else tmax
 
     def create_vertex_list(self):
         """Visual representation of a bounding box - a wireframe cuboid."""
-        if self._vertex_list:
-            self.delete()
+        self.delete()
 
         self._vertex_list = self._program.vertex_list(
             self._count, GL_LINES, self._batch, self._group,
@@ -248,7 +251,7 @@ class BoundingBox:
         )
 
     def delete(self):
-        if self._vertex_list is not None:
+        if self._vertex_list:
             self._vertex_list.delete()
             self._vertex_list = None
 
@@ -264,6 +267,10 @@ class Selectable:
 
     Pass a :py:class:`Batch` if a visual representation of the bounding box is needed.
     Visuals will be toggled automatically based on selection status.
+
+    Note that while visual representation of a bounding box is updated on every draw call through
+    :py:class:`InterfaceDynamicGroup`, to reduce CPU load, its actual orientation used for
+    intersection calculations will only be updated after :py:meth:`update_bounding_box` is called.
     """
     def __init__(self, batch: Batch = None):
         self._batch = batch
