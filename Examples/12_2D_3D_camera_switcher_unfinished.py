@@ -1,16 +1,13 @@
 import math
 
-from pyglet.graphics.shader import Shader, ShaderProgram
 from tools.camera import Camera2D, Camera3D
 import pyglet.event
 from pyglet.math import *
 
-import tools_old.camera
 from tools.definitions import *
 
 # animations
-from tools.animation import AnimationManagerV3
-import tools.easing
+from tools.tools_old.animation import AnimationManagerV3
 
 from pyglet.gl import *
 

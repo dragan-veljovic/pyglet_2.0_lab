@@ -1,24 +1,21 @@
-import pyglet.graphics
-from pyglet.event import EVENT_HANDLE_STATE
-
-import tools.lighting
 from tools.definitions import *
 from tools.model import *
-from tools.camera import Camera3D
 from tools.lighting import DirectionalLight
 from tools.skybox import Skybox
 from tools.interface import *
 
 import pyglet
 
-settings = {
+SETTINGS = {
     'default_mode': True,
     'width': 1920,
     'height': 1080,
     'config': get_config(samples=2),
     'vsync': True,
     'fullscreen': False,
-    'resizable': True
+    'resizable': True,
+    'fps': 120,
+    'enable_console': True
 }
 
 
@@ -38,6 +35,9 @@ class App(pyglet.window.Window):
 
         self.camera = Camera3D(self, z_far=12000, speed=10)
         self.mouse_picker = MousePicker(self, self.camera, batch=self.batch)
+        self.selectables = set()
+        self.selection = SelectionManager(self, self.camera, self.selectables, self.batch)
+
         self.ubo = self.program.uniform_blocks['WindowBlock'].create_ubo()
 
         with self.ubo as ubo:
@@ -63,7 +63,7 @@ class App(pyglet.window.Window):
         terrain_texture = DiffuseNormalTextureGroup(
             diffuse=pyglet.image.load('res/model/cliff/base_color.png').get_texture(),
             normal=pyglet.image.load(
-               'res/model/cliff/normalmap.png').get_texture(),
+                'res/model/cliff/normalmap.png').get_texture(),
             program=self.program, parent=blend_group
         )
 
@@ -78,27 +78,26 @@ class App(pyglet.window.Window):
         self.material_group2 = MaterialGroup(self.material_ubo, parent=material_texture, reflection_strength=1, shininess=128, bump_strength=0.25, f0_reflectance=(0.839, 0.565, 0.255, 1.0))
 
         # scene
-        self.selectables = []
-        # self.terrain = load_mesh('res/model/cliff/cliff_low.obj', self.program, self.batch, terrain_group, True, position=(0, -1000, 0), scale=10, tex_scale=10)
-        # self.selectables.append(self.terrain)
+        self.terrain = load_mesh('res/model/cliff/cliff_low.obj', self.program, self.batch, terrain_group, True, position=(0, -1000, 0), scale=10, tex_scale=10)
+        self.selectables.add(self.terrain)
 
         data = transform_model_data(load_obj_model('res/model/vessel.obj'))
 
-        N = 5
+        N = 4
         for i in range(N):
             for j in range(N):
                 for k in range(N):
                     mesh = Mesh(data, self.program, self.batch, self.material_group2)
                     mesh.position = Vec3(200 + 200 * i, 200 + k*200, 200 + 200 * j)
                     mesh.scale = Vec3(0.25, 0.25, 0.25)
-                    self.selectables.append(mesh)
+                    self.selectables.add(mesh)
 
         self.sphere1 = Sphere(self.program, self.batch, self.material_group, Vec3(0, 0, 0), radius=150, lat_segments=32)
-        self.selectables.append(self.sphere1)
+        self.selectables.add(self.sphere1)
 
         self.sphere2 = Sphere(self.program, self.batch, self.material_group2, Vec3(0, 0, 0), radius=125)
         self.sphere2.position = Vec3(-300, 0, 0)
-        self.selectables.append(self.sphere2)
+        self.selectables.add(self.sphere2)
 
         self.program['shadow_mapping'] = False
         self.draw_skybox = True
@@ -108,65 +107,14 @@ class App(pyglet.window.Window):
         glEnable(GL_DEPTH_TEST)
         self.camera.toggle_fps_controls()
 
-        # binding box display and selection
-        self.selected = set()
-        # eliminating mouse press while dragging
-        self._mouse_pressed = False
-        self._mouse_dragging = False
-
     def on_activate(self):
         self.camera.toggle_fps_controls()
 
     def on_deactivate(self):
         self.camera.toggle_fps_controls()
 
-    def deselect_all(self):
-        for item in self.selected:
-            item.deselect()
-
-    def select_all(self):
-        for selectable in self.selectables:
-            selectable.select()
-            self.selected.add(selectable)
-
-    def select(self, modifiers: int):
-        """TODO: Make a class to manage selections."""
-        min_dist = float('inf')
-        closest = None
-
-        for selectable in self.selectables:
-            # Update position of binding box before selection
-            selectable.update_bounding_box()
-            ray = self.mouse_picker.get_mouse_ray()
-            hit, dist = selectable.ray_intersects_aabb(ray)
-            if hit and dist < min_dist:
-                closest = selectable
-                min_dist = dist
-
-        if closest:
-            # removal of already selected object
-            if modifiers == 6:  # CTRL + ALT mods pressed
-                self.selected.discard(closest)
-                closest.deselect()
-
-            # adding new object to selection
-            elif modifiers == 2:  # CTRL pressed
-                self.selected.add(closest)
-                closest.select()
-            else:
-                # single selection, deselect everything else
-                for selected in self.selected:
-                    selected.deselect()
-                self.selected = {closest}
-                closest.select()
-        else:
-            # empty space clicked, deselect everything
-            for selected in self.selected:
-                selected.deselect()
-            self.selected = set()
-
     def visualise_actual_bounding_boxes(self):
-        for selected in self.selected:
+        for selected in self.selection:
             vlist = selected._bounding_box._vertex_list
             if vlist:
                 selected._bounding_box.delete()
@@ -181,7 +129,6 @@ class App(pyglet.window.Window):
 
             if self.sphere2.dynamic:
                 self.sphere2.scale = Vec3(1 + 0.5 * math.sin(self.time), 1 + 0.5 * math.cos(self.time), 1)
-
         #self.visualise_actual_bounding_boxes()
 
         with self.ubo as ubo:
@@ -228,39 +175,22 @@ class App(pyglet.window.Window):
                 self.program['fresnel'] = not self.program['fresnel']
 
             case pyglet.window.key.K:
-                if self.selected:
-                    for mesh in self.selected:
+                if self.selection:
+                    for mesh in self.selection:
                         mesh.freeze()
             case pyglet.window.key.J:
-                if self.selected:
-                    for mesh in self.selected:
+                if self.selection:
+                    for mesh in self.selection:
                         mesh.unfreeze()
 
             case pyglet.window.key.G:
                 ray = self.mouse_picker.get_mouse_ray()
                 ray.create_vertex_list()
 
-        if symbol == pyglet.window.key.Z and modifiers & pyglet.window.key.MOD_CTRL:
-            self.select_all()
-
-    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
-        self._mouse_pressed = True
-        self._mouse_dragging = False
-
-    def on_mouse_release(self, x: int, y: int, button: int, modifiers: int):
-        if self._mouse_pressed and not self._mouse_dragging:
-            if button == pyglet.window.mouse.LEFT:
-                self.select(modifiers)
-
-            if button == pyglet.window.mouse.RIGHT:
-                self.deselect_all()
-        self._mouse_pressed = False
-        self._mouse_dragging = False
-
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
-        self._mouse_dragging = True
-        if self.selected:
-            for selected in self.selected:
+        """Example how to handle selection, in this case some typical transforms. """
+        if self.selection:
+            for selected in self.selection:
                 if selected.dynamic:
                     if buttons == pyglet.window.mouse.LEFT:
                         if modifiers & pyglet.window.key.LSHIFT:
@@ -282,7 +212,7 @@ class App(pyglet.window.Window):
 
 
 if __name__ == '__main__':
-    app = start_app(App, fps=240, enable_console=True, **settings)
+    app = start_app(App, **SETTINGS)
 
 
 

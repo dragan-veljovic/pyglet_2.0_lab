@@ -230,22 +230,3 @@ def timed(func):
         print(f"{func.__name__} took {end - start:.6f} seconds")
         return result
     return wrapper
-
-
-# simple palette - use color module for more colors
-palette = {"orange": (209, 60, 23, 255), "yellow": (219, 204, 101, 255), "grey": (112, 112, 112, 255),
-           "light-grey": (185, 185, 186, 255), "brown": (71, 56, 44, 255), "teal": (0, 128, 128, 255),
-           "mild-white": (240, 240, 240, 255), "white": (255, 255, 255, 255),
-           "blue": (2, 145, 173, 255), "purple": (119, 101, 219, 255), "bkg": (24, 39, 54, 255),
-           "app1": (159, 231, 245, 255), "app2": (66, 158, 189, 255), "app3": (5, 63, 92, 255),
-           "app4": (247, 173, 25, 255), "app5": (242, 127, 12, 255), "app6": (255, 132, 0, 255)}
-
-
-def get_palette(batch, group=None) -> list:
-    """Returns a list of pyglet.shapes to represent a simple color palette."""
-    color_display = []
-    color_labels = []
-    for i, (name, rgb) in enumerate(palette.items()):
-        color_display.append(pyglet.shapes.Rectangle(100, 640 - i * 35, 30, 30, rgb[:3], batch=batch, group=group))
-        color_labels.append(pyglet.text.Label(f"'{name}'", x=150, y=640 - i * 35 + 10, batch=batch, group=group))
-    return color_display

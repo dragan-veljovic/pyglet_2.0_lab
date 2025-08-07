@@ -1,10 +1,6 @@
-import random
-
-import pyglet
-import pymunk
 from tools.definitions import *
 from tools.camera import Camera2D
-from tools.physics import *
+from tools.tools_old.physics import *
 
 WIDTH = 1280
 HEIGHT = 720

@@ -8,7 +8,7 @@ import math
 
 import pyglet.math
 
-import tools.color
+import tools.tools_old.color
 from tools.definitions import *
 from tools.camera import Camera3D
 from tools.graphics import *
@@ -191,10 +191,10 @@ class App(pyglet.window.Window):
         )
         self.cube = Cuboid(self.program, self.batch, color=(164, 0, 0, 255))
         self.cube2 = Cuboid(
-            self.program, self.batch, color=(*tools.color.CORDOVAN, 255), position=(-200, -200, -300)
+            self.program, self.batch, color=(*tools.tools_old.color.CORDOVAN, 255), position=(-200, -200, -300)
         )
         self.cube2 = Cuboid(
-            self.program, self.batch, color=(*tools.color.ORANGE_RED, 255),
+            self.program, self.batch, color=(*tools.tools_old.color.ORANGE_RED, 255),
             position=(200, -200, -300), size=(100, 800, 300)
         )
 

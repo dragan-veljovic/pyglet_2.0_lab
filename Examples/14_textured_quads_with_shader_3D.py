@@ -14,7 +14,7 @@ import pyglet.shapes
 
 import tools.camera
 from tools.definitions import *
-import tools.color
+import tools.tools_old.color
 from pyglet.gl import *
 
 FPS = 60

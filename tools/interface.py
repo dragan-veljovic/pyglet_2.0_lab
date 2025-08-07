@@ -1,8 +1,9 @@
 from tools.camera import Camera3D
+import pyglet
 from pyglet.gl import *
 from pyglet.math import Vec3, Vec4, Mat4
 from pyglet.window import Window
-from pyglet.graphics import Batch, Group
+from pyglet.graphics import Batch, Group, ShaderGroup
 from pyglet.graphics.shader import Shader, ShaderProgram
 from tools.definitions import get_default_shader_program
 
@@ -119,7 +120,7 @@ class BoundingBox:
     Initially, creates an axis-aligned bounding box (AABB) from provided min, max corner vectors.
     It can be used for selection or collision mechanisms.
 
-    Bounding box can later be oriented through :py:meth:`update` and whether :py:class:`Ray` is passing through
+    Bounding box can later be oriented through :py:meth:`update`, and whether :py:class:`Ray` is passing through
     its volume can be checked with :py:meth:`intersects_ray` OBB algorithm.
 
     Normally, :py:class:`Selectable` would create and manage updates of its own bounding box instance.
@@ -274,6 +275,7 @@ class Selectable:
     """
     def __init__(self, batch: Batch = None):
         self._batch = batch
+
         self._group = None
         self._program = None
         self._selected = False
@@ -283,7 +285,8 @@ class Selectable:
         # if batch is passed, visual representation is needed
         if self._batch:
             self._program = get_interface_shader_program()
-            self._group = InterfaceDynamicGroup(self, self._program)
+            self.program_group = ShaderGroup(self._program)
+            self._group = InterfaceDynamicGroup(self, self._program, parent=self.program_group)
 
         self._bounding_box = self._get_bounding_box()
 
@@ -328,36 +331,6 @@ class Selectable:
         return self._bounding_box
 
 
-class InterfaceDynamicGroup(Group):
-    """For dynamic updates of interface objects, such as bounding boxes."""
-    def __init__(self, selectable: Selectable, program: ShaderProgram, order=0, parent: Group = None):
-        super().__init__(order, parent)
-        self.program = program
-        self.selectable = selectable
-
-    def set_state(self) -> None:
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        self.program.use()
-        self.program['rendering_dynamic_object'] = True
-        self.program['model_precalc'] = self.selectable.matrix
-
-    def unset_state(self) -> None:
-        self.program['rendering_dynamic_object'] = False
-
-    def __hash__(self):
-        return hash((self.program, self.selectable, self.order, self.parent))
-
-    def __eq__(self, other: "InterfaceDynamicGroup"):
-        return (
-                self.__class__ == other.__class__ and
-                self.selectable is other.selectable and
-                self.program is other.program and
-                self.parent == other.parent and
-                self.order == other.order
-        )
-
-
 class MousePicker:
     def __init__(self, window: Window, camera: Camera3D, program=None, batch=None, group=None):
         """
@@ -396,4 +369,183 @@ class MousePicker:
 
         return Ray(ray_direction, self.camera.position, self.camera.z_far,
                    self.program, self.batch, self.group)
+
+
+class SelectionManager:
+    """
+    Manager that tracks selection of :py:class:`Selectable` objects in passed :py:attr:`selectables` set.
+
+    Can be toggled on and off by setting :py:attr:`active` boolean.
+
+    If manager is active, it will handle mouse inputs automatically:
+        - select individual selectable with LEFT mouse click
+        - add to selection with CTRL+LEFT mouse click
+        - remove from selection with CTRL+ALT+LEFT mouse click
+
+    **Example usage:**
+
+        class App(pyglet.window.Window):
+            def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+
+            self.camera = Camera3D(self)
+            self.selectables = set()
+            self.selection = SelectionManager(self, self.camera, self.selectables, self.batch)
+
+            # ... add some `Selectable` to the set
+
+            def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
+                if self.selection:
+                    for selected_item in self.selection:
+                        selected.position += Vec3(0.0, dy, 0.0)
+
+    TODO: Batch passed to manager controls visibility of bounding boxes, remove this burden from `Selectable`
+    """
+    def __init__(
+            self,
+            window: Window,
+            camera: Camera3D,
+            selectables: set[Selectable],
+            batch: Batch | None = None,
+            active=True,
+    ):
+        self._window = window
+        self._camera = camera
+        self._selectables = selectables
+        self._batch = batch
+
+        self._active = active
+        self._selected = set()
+        self._mouse_picker = MousePicker(self._window, self._camera)
+        self._mouse_pressed = False
+        self._mouse_dragging = False
+        if active:
+            self._window.push_handlers(self)
+
+    def deselect_all(self):
+        for item in self._selected:
+            item.deselect()
+        self._selected = set()
+        # Issue detected - creating vertex lists slows down rendering, but slowdown persists even after its deletion.
+        # should call this periodically, and is a must after large number of vertex lists has been deleted!
+        if self._batch:
+            self._batch.invalidate()
+
+    def select_all(self):
+        for item in self._selectables:
+            item.select()
+            self._selected.add(item)
+
+    def select(self, modifiers: int):
+        min_dist = float('inf')
+        closest = None
+
+        for item in self._selectables:
+            # Update position of binding box before selection
+            item.update_bounding_box()
+            ray = self._mouse_picker.get_mouse_ray()
+            hit, dist = item.ray_intersects_aabb(ray)
+            if hit and dist < min_dist:
+                closest = item
+                min_dist = dist
+
+        if closest:
+            # removal of already selected object
+            if modifiers == 6:  # CTRL + ALT mods pressed
+                self._selected.discard(closest)
+                closest.deselect()
+
+            # adding new object to selection
+            elif modifiers == 2:  # CTRL pressed
+                self._selected.add(closest)
+                closest.select()
+            else:
+                # single selection, deselect everything else
+                for item in self._selected:
+                    item.deselect()
+                closest.select()
+                self._selected = {closest}
+        else:
+            # empty space clicked, deselect everything
+            self.deselect_all()
+
+    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
+        self._mouse_pressed = True
+        self._mouse_dragging = False
+
+    def on_mouse_release(self, x: int, y: int, button: int, modifiers: int):
+        if self._mouse_pressed and not self._mouse_dragging:
+            if button == pyglet.window.mouse.LEFT:
+                self.select(modifiers)
+
+            if button == pyglet.window.mouse.RIGHT:
+                self.deselect_all()
+        self._mouse_pressed = False
+        self._mouse_dragging = False
+
+    def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
+        self._mouse_dragging = True
+
+    def on_key_press(self, symbol: int, modifiers: int) -> None:
+        if symbol == pyglet.window.key.A and modifiers & pyglet.window.key.MOD_CTRL:
+            self.select_all()
+
+    @property
+    def active(self) -> bool:
+        return self._active
+
+    @active.setter
+    def active(self, value: bool):
+        if value:
+            if not self._active:
+                self._window.push_handlers(self)
+                self._active = True
+        else:
+            if self._active:
+                self._window.remove_handlers(self)
+                self._active = False
+
+    def __iter__(self):
+        return iter(self._selected)
+
+    def __len__(self):
+        return len(self._selected)
+
+    def __contains__(self, item):
+        return item in self._selected
+
+    def __bool__(self):
+        return bool(self._selected)
+
+
+class InterfaceDynamicGroup(Group):
+    """For dynamic updates of interface objects, such as bounding boxes."""
+    def __init__(self, selectable: Selectable, program: ShaderProgram, order=0, parent: Group = None):
+        super().__init__(order, parent)
+        self.program = program
+        self.selectable = selectable
+
+    def set_state(self) -> None:
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        self.program['rendering_dynamic_object'] = True
+        self.program['model_precalc'] = self.selectable.matrix
+
+    def unset_state(self) -> None:
+        self.program['rendering_dynamic_object'] = False
+
+    def __hash__(self):
+        return hash((self.program, self.selectable, self.order, self.parent))
+
+    def __eq__(self, other: "InterfaceDynamicGroup"):
+        return (
+                self.__class__ == other.__class__ and
+                self.selectable is other.selectable and
+                self.program is other.program and
+                self.parent == other.parent and
+                self.order == other.order
+        )
+
+
+
 

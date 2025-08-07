@@ -2,7 +2,7 @@ import pyglet.gl
 import pyglet.window
 
 import tools.camera
-import tools.color
+import tools.tools_old.color
 from tools.definitions import *
 import numpy as np
 import tools_old.graphics as gr
@@ -150,7 +150,7 @@ class App(pyglet.window.Window):
         self.grid = get_grid(self, self.program, self.gui_batch)
         self.scene_elements.append(pyglet.shapes.Circle(0, 0, 100, batch=self.batch))
         self.scene_elements.append(
-            pyglet.shapes.Rectangle(-500, 0, -250, 250, color=tools.color.ORANGE_PEEL, batch=self.batch))
+            pyglet.shapes.Rectangle(-500, 0, -250, 250, color=tools.tools_old.color.ORANGE_PEEL, batch=self.batch))
         # self.points = np.array(((-100, -100, 0), (0, 0, 0), (500, -300, 0), (600, 0, 0)))
         # vertices = gr.get_gl_lines_vertices_numpy(self.points)
         # self.line = self.program.vertex_list(len(vertices)//3, pyglet.gl.GL_LINES, self.batch,
@@ -168,7 +168,7 @@ class App(pyglet.window.Window):
             self.sines.append(self.program.vertex_list(
                 len(sine_vertices)//3, pyglet.gl.GL_LINES, self.batch,
                 position=('f', sine_vertices),
-                colors=('Bn', (255-n*20, *tools.color.ORANGE_PEEL[1:3], 255) * (len(sine_vertices)//3))
+                colors=('Bn', (255 - n * 20, *tools.tools_old.color.ORANGE_PEEL[1:3], 255) * (len(sine_vertices) // 3))
             )
         )
         print(len(self.sines))

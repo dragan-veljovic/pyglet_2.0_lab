@@ -1,10 +1,8 @@
 import random
 
-import pyglet
 """ Weird problem of sprites working too slow 300 compared to 1500!!!"""
-import tools.camera
 from tools.definitions import *
-from tools.color import *
+from tools.tools_old.color import *
 
 WIDTH = 1270
 HEIGHT = 720

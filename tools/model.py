@@ -659,7 +659,7 @@ class BlendGroup(Group):
         return hash((self.blend_src, self.blend_dest, self.order, self.parent))
 
     def __eq__(self, other: 'BlendGroup'):
-        return (self.__class__ == other.__class__ and
+        return (self.__class__ is other.__class__ and
                 self.blend_src == other.blend_src and
                 self.blend_dest == other.blend_dest and
                 self.order == other.order and

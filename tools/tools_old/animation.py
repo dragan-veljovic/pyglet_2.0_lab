@@ -1,7 +1,7 @@
 import pyglet
 from abc import ABC, abstractmethod
-from typing import Callable, Union
-from tools.easing import *
+from typing import Union
+from tools.tools_old.easing import *
 
 FPS = 60
 
