@@ -193,7 +193,7 @@ vec3 get_fresnel_factor(vec3 normal){
     vec3 view_dir = normalize(window.view_position - frag_position);
     float cos_theta = clamp(dot(view_dir, normal), 0.0, 1.0);
     vec3 F0 = material.f0_reflectance.rgb;  // base reflectance 0.04 for non-metals
-    return F0 + (1.0 - F0) * pow(1.0 - cos_theta, 5);
+    return F0 + (1.0 - F0) * pow(1.0 - cos_theta, material.fresnel_power);
 }
 
 

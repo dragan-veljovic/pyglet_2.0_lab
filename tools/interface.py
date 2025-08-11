@@ -397,7 +397,7 @@ class SelectionManager:
             def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
                 if self.selection:
                     for selected_item in self.selection:
-                        selected.position += Vec3(0.0, dy, 0.0)
+                        selected_item.position += Vec3(dx, 0,0, dy)
 
     TODO: Batch passed to manager controls visibility of bounding boxes, remove this burden from `Selectable`
     """

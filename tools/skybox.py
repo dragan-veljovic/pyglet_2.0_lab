@@ -1,10 +1,3 @@
-"""
-A cubemap skybox for your pyglet scene.
-6 images are expected to be found in passed "path" directory, and named
-'right', 'left', 'top', 'bottom', 'front', 'back' with appropriate extension.
-After creation, call Skybox.draw() in your on_draw() method before drawing batches.
-"""
-
 import pyglet
 from pyglet.gl import *
 import ctypes
@@ -53,7 +46,11 @@ void main() {
 """
 
 
-def create_cube_map(path: str, ext: str = 'jpg') -> GLuint:
+def create_cube_map(path: str, six_images_loading=False, six_images_ext: str = 'jpg') -> GLuint:
+    """
+    Create a cubemap from a single image, or a set of 6 face images.
+    Read :py:class:`Skybox` docstring for explanation of the parameters.
+    """
     cube_map = GLuint()
     glGenTextures(1, cube_map)
     glBindTexture(GL_TEXTURE_CUBE_MAP, cube_map)
@@ -67,16 +64,36 @@ def create_cube_map(path: str, ext: str = 'jpg') -> GLuint:
         GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
     )
 
-    # Fixed mapping - swapped 'top' and 'bottom'
-    face_images = ('right', 'left', 'top', 'bottom', 'front', 'back')
+    if not six_images_loading:
+        # code for extracting faces from single image
+        texture = pyglet.image.load(path).get_texture()
+        width, height = texture.width, texture.height
+        region_origins = (
+            (width // 2, height // 3),  # right
+            (0, height // 3),  # left
+            (width // 4, int(height * 2 / 3)),  # top
+            (width // 4, 0),  # bottom
+            (width // 4, height // 3),  # front
+            (int(width * 3 / 4), height // 3)  # back
+        )
 
-    for target, image in zip(face_targets, face_images):
-        # loading image
-        image = pyglet.image.load(path + f'/{image}.{ext}').get_texture()
-        image_data = image.get_image_data()
-        # get the raw pixel bytes (RGBA format)
-        raw_data = image_data.get_bytes('RGBA', image.width * 4)  # 4 bytes per pixel
-        glTexImage2D(target, 0, GL_RGBA, image.width, image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw_data)
+        for origin, target in zip(region_origins, face_targets):
+            region = texture.get_region(*origin, width // 4, height // 3)
+            image_data = region.get_image_data()
+            raw_data = image_data.get_bytes('RGBA', image_data.width * 4)
+            glTexImage2D(target, 0, GL_RGBA, image_data.width, image_data.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw_data)
+
+    if six_images_loading:
+        # code for 6 separate images
+        face_images = ('right', 'left', 'top', 'bottom', 'front', 'back')
+
+        for target, image in zip(face_targets, face_images):
+            # loading image
+            image = pyglet.image.load(path + f'/{image}.{six_images_ext}').get_texture()
+            image_data = image.get_image_data()
+            # get the raw pixel bytes (RGBA format)
+            raw_data = image_data.get_bytes('RGBA', image.width * 4)  # 4 bytes per pixel
+            glTexImage2D(target, 0, GL_RGBA, image_data.width, image_data.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw_data)
 
     # wrapping and filtering
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
@@ -89,7 +106,23 @@ def create_cube_map(path: str, ext: str = 'jpg') -> GLuint:
 
 
 class Skybox:
-    def __init__(self, image_path: str, extension: str = "jpg"):
+    """
+    Creates a skybox around the scene.
+
+    Box is textured with a cube map through custom shader.
+    Cube texture can be created from single image, by passing entire filename:
+        skybox = Skybox('res/skybox/skybox.png').
+    If single image is used, it is expected to be of right orientation (like Denmark flag).
+
+    Alternatively, 6 separate images for each side can be used, by passing path to folder where images are:
+        skybox = Skybox('res/skybox/', six_images_loading=True, six_images_ext: str = 'png')
+    In this case, it is expected that images are labelled 'right', 'left', 'top', 'bottom', 'front', 'back',
+    and with appropriate extension passed.
+
+    After skybox is created, use :py:method:`set_environment_map` to add it to your shader for lighting purposes.
+    Call :py:method:`draw` in your on_draw() to display skybox.
+    """
+    def __init__(self, path: str, six_images_loading=False, six_images_ext: str = 'jpg'):
 
         # Store the shader program and cube map texture
         self.shader = ShaderProgram(
@@ -97,7 +130,7 @@ class Skybox:
             Shader(skybox_fragment_shader, 'fragment')
         )
 
-        self.cube_map = create_cube_map(image_path, extension)
+        self.cube_map = create_cube_map(path, six_images_loading, six_images_ext)
         # assign cube map texture to texture slot 0
         self.shader["skybox"] = 0
 

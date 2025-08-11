@@ -174,7 +174,6 @@ class Mesh(Selectable):
         self._data.update({
             'position': transformed_positions,
             'normal': transformed_normals,
-
         })
 
         if 'tangent' in self._data:
