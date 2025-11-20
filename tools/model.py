@@ -57,9 +57,15 @@ class Mesh(Selectable):
         self._program = program
         self._batch = batch
         self._parent_group = group
-        self._dynamic_group = DynamicRenderGroup(
-            self, self._program, order=self._parent_group.order, parent=self._parent_group
-        )
+
+        if dynamic:
+            if self._parent_group:
+                self._dynamic_group = DynamicRenderGroup(
+                    self, self._program, order=self._parent_group.order, parent=self._parent_group
+                )
+            else:
+                self._dynamic_group = DynamicRenderGroup(self, self._program)
+
         self._group = self._dynamic_group if dynamic else self._parent_group
         self._dynamic = dynamic
         self._vertex_list = get_vertex_list(data, self._program, self._batch, self._group)

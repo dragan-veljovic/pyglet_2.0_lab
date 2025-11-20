@@ -470,20 +470,18 @@ class SelectionManager:
             self.deselect_all()
 
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int):
-        if not self._window.gui_interaction():
-            self._mouse_pressed = True
-            self._mouse_dragging = False
+        self._mouse_pressed = True
+        self._mouse_dragging = False
 
     def on_mouse_release(self, x: int, y: int, button: int, modifiers: int):
-        if not self._window.gui_interaction():
-            if self._mouse_pressed and not self._mouse_dragging:
-                if button == pyglet.window.mouse.LEFT:
-                    self.select(modifiers)
+        if self._mouse_pressed and not self._mouse_dragging:
+            if button == pyglet.window.mouse.LEFT:
+                self.select(modifiers)
 
-                if button == pyglet.window.mouse.RIGHT:
-                    self.deselect_all()
-            self._mouse_pressed = False
-            self._mouse_dragging = False
+            if button == pyglet.window.mouse.RIGHT:
+                self.deselect_all()
+        self._mouse_pressed = False
+        self._mouse_dragging = False
 
     def on_mouse_drag(self, x: int, y: int, dx: int, dy: int, buttons: int, modifiers: int):
         self._mouse_dragging = True
