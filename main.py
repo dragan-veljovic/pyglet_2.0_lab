@@ -1,3 +1,5 @@
+import imgui
+
 from tools.definitions import *
 from tools.model import *
 from tools.lighting import DirectionalLight
@@ -102,7 +104,7 @@ class App(pyglet.window.Window):
         self.sphere2.position = Vec3(-300, 0, 0)
         self.selectables.add(self.sphere2)
 
-        self.program['shadow_mapping'] = False
+        self.program['shadow_mapping'] = True
         self.draw_skybox = True
         self.wireframe = False
         self.run = True
@@ -114,6 +116,11 @@ class App(pyglet.window.Window):
 
     def on_deactivate(self):
         self.camera.toggle_fps_controls()
+
+    def imgui_des(self):
+        imgui.begin("Custom window")
+        imgui.text("Drag me and resize me!")
+        imgui.end()
 
     def on_draw(self):
         if self.run:

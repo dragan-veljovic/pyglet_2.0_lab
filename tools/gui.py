@@ -1,8 +1,8 @@
-import weakref
 import pyglet.window
 import imgui
 from imgui.integrations.pyglet import create_renderer
 from pyglet.event import EVENT_HANDLED
+from typing import Callable
 
 
 class _ImGuiEventFilter:
@@ -62,15 +62,22 @@ class ImplementImGUI:
     and other inputs directed at the GUI element.
 
     Call :py:meth:`render` after drawing batches in your window on_draw,
-    in order to display the gui.
+    in order to display the gui. Define your custom imgui design function
+    and pass its handle as :py:param:`imgui_design`.
     """
     def __init__(
             self,
             window: pyglet.window.Window,
+            imgui_design: Callable = None,
             scale=1.0,
             save_state=False,
     ):
         self._window = window
+        if imgui_design:
+            self.imgui_design = imgui_design
+        else:
+            self.imgui_design = self.default_design
+
         imgui.create_context()
         self._impl = create_renderer(self._window)
         self._filter = _ImGuiEventFilter(self._impl)
@@ -90,18 +97,12 @@ class ImplementImGUI:
         self._impl.render(imgui.get_draw_data())
 
     @staticmethod
-    def imgui_design():
+    def default_design():
         """
         Default demo window for error checking.
-        Overwrite with your own design.
+        Pass your own gui design function handle to be rendered.
         """
         imgui.show_demo_window()
-        imgui.begin(
-            "Fixed Window",
-            flags=imgui.WINDOW_NO_MOVE
-        )
-        imgui.text("You can't drag me anywhere!")
-        imgui.end()
 
     def push_imgui_handler_to_top(self):
         # Remove if already present
