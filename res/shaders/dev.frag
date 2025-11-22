@@ -64,6 +64,7 @@ uniform bool normal_mapping = true;
 uniform bool environment_mapping = true;
 uniform bool fade = true;
 uniform bool fresnel = true;
+uniform float gamma = 2.2;
 
 
 float get_fade_factor(){
@@ -237,7 +238,10 @@ vec3 get_lighting(float shadow_factor, vec3 normal, vec3 texture_diff){
 // MaterialGroup has to be able to change global render switches
 
 vec3 get_diffuse_texture(){
-    return texture(diffuse_texture, frag_tex_coord).rgb;
+    vec3 texture_color = texture(diffuse_texture, frag_tex_coord).rgb;
+    // convert sRGB to linear
+    texture_color = pow(texture_color, vec3(gamma));
+    return texture_color;
 }
 
 
@@ -254,9 +258,12 @@ void main() {
     // Phong lighting
     vec3 lighting = get_lighting(shadow_factor, normal, texture_diff);
 
+    // Gamma correction
+    vec3 lighting_corrected = pow(lighting, vec3(1.0 / gamma));
+
     // Fade effect
     float fade_factor = fade ? get_fade_factor() : 1.0;
 
     // Combine lighting and shadow factors
-    final_color = vec4(lighting, frag_color.a * material.diffuse.a * fade_factor);
+    final_color = vec4(lighting_corrected, frag_color.a * material.diffuse.a * fade_factor);
 }

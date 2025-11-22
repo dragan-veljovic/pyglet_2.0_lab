@@ -41,7 +41,7 @@ out vec4 fragColor;
 uniform samplerCube skybox;
 
 void main() {
-    fragColor = texture(skybox, texCoords);
+    fragColor = vec4(pow(texture(skybox, texCoords).rgb, vec3(1.0/2.2)), 1.0);
 }
 """
 
@@ -93,7 +93,7 @@ def create_cube_map(path: str, six_images_loading=False, six_images_ext: str = '
             image_data = image.get_image_data()
             # get the raw pixel bytes (RGBA format)
             raw_data = image_data.get_bytes('RGBA', image.width * 4)  # 4 bytes per pixel
-            glTexImage2D(target, 0, GL_RGBA, image_data.width, image_data.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw_data)
+            glTexImage2D(target, 0, GL_SRGB8_ALPHA8, image_data.width, image_data.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw_data)
 
     # wrapping and filtering
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
