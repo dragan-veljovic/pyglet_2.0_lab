@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 class Mesh(Selectable):
+    """
+    TODO: Mesh based objects like Sphere or Cuboid have attribute self.position.
+    TODO: This is only use to generate initial vertex data, but it interferes Mesh position property!
+    """
     _id_counter = 0
 
     def __init__(
@@ -30,7 +34,7 @@ class Mesh(Selectable):
             program: ShaderProgram,
             batch: Batch,
             group: Group | None = None,
-            dynamic=True
+            dynamic=False,
     ):
         """
         A single set of vertex data, with its own transformation and optional group for textures/materials.
@@ -49,6 +53,8 @@ class Mesh(Selectable):
         TODO: inefficient freeze(), a lot of Vec4s, adjusted transform_model_data() should work with dict directly.
         TODO: another group updating uniform (block?) of parameters, allowing for transformation on the GPU
         TODO: trans param added, but what happens with them when model if freezed?
+
+        TODO: problem with `_positon` when object like Sphere is not created at 0,0,0 (subsequent move doubles initial disp!)
         """
         Mesh._id_counter += 1
         self.id = Mesh._id_counter
@@ -72,7 +78,7 @@ class Mesh(Selectable):
 
         # transformation parameters
         self._matrix = Mat4()
-        self._position = Vec3(0, 0, 0)
+        self._position = Vec3(0, 0, 0)  # should be passed from created object like Sphere
         self._rotation = 0.0
         self._rotation_dir = Vec3(0, 1, 0)
         self._scale = Vec3(1.0, 1.0, 1.0)
@@ -319,14 +325,14 @@ class Sphere(Mesh):
             radius=50,
             lat_segments=16,
             lng_segments=32,
-            color=(1.0, 1.0, 1.0, 1.0)
+            color=(1.0, 1.0, 1.0, 1.0),
+            **kwargs
     ):
-        self.position = position
         self.radius = radius
         self.lat_segments = lat_segments
         self.lng_segments = lng_segments
 
-        positions, indices, tex_coords = self._generate_vertex_data()
+        positions, indices, tex_coords = self._generate_vertex_data(position)
 
         # Calculate normals using your existing function
         normals = calculate_normals(positions, indices)
@@ -346,15 +352,15 @@ class Sphere(Mesh):
             'bitangent': bitangents
         }
 
-        super().__init__(data, program, batch, group)
+        super().__init__(data, program, batch, group, **kwargs)
 
-    def _generate_vertex_data(self) -> tuple:
+    def _generate_vertex_data(self, position: Vec3) -> tuple:
         """Generate vertices, indices, and texture coordinates in a single pass."""
         vertices = []
         tex_coords = []
         indices = []
 
-        x, y, z = self.position.x, self.position.y, self.position.z
+        x, y, z = position.x, position.y, position.z
 
         # Generate vertices, texture coordinates, and indices in a single loop
         for lat in range(self.lat_segments + 1):

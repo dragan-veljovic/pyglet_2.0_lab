@@ -238,10 +238,10 @@ vec3 get_lighting(float shadow_factor, vec3 normal, vec3 texture_diff){
 // MaterialGroup has to be able to change global render switches
 
 vec3 get_diffuse_texture(){
-    vec3 texture_color = texture(diffuse_texture, frag_tex_coord).rgb;
+    vec3 albedo = texture(diffuse_texture, frag_tex_coord).rgb;
     // convert sRGB to linear
-    texture_color = pow(texture_color, vec3(gamma));
-    return texture_color;
+    albedo = pow(albedo, vec3(gamma));
+    return albedo;
 }
 
 

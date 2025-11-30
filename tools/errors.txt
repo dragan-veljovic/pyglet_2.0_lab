@@ -4,6 +4,7 @@ Invalid operation. The specified operation is not allowed in the current state.
 Object not drawn
 - did you pass a batch or shader program?
 - if you pass your own Group during vertex list creation, did you shader_progam.use()?
+- if so, this can be fixed by passing ShaderGroup or any other group that has this as a paraent.
 
 Transparency not affected by color.alpha in shaders?
 - glEnable(GL_BLEND)
