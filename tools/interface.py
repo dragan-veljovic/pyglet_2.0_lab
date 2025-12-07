@@ -57,6 +57,9 @@ def get_interface_shader_program():
     return _interface_shader_program
 
 
+
+
+
 class Ray:
     def __init__(
             self, direction: Vec3, origin=Vec3(0, 0, 0), length=100.0,
@@ -113,6 +116,20 @@ class Ray:
     @property
     def target(self):
         return self._target
+
+    def intersect_plane(
+            self, plane_normal=Vec3(0, 1, 0), plane_point=Vec3(0, 0, 0)
+    ) -> Vec3 | None:
+        denom = self._direction.dot(plane_normal)
+        if abs(denom) < 1e-6:
+            return None  # ray parallel to plane
+
+        s = plane_point - self._origin
+        t = s.dot(plane_normal) / denom
+        if t < 0:
+            return None  # behind camera
+
+        return self._origin + t * self._direction
 
 
 class BoundingBox:
